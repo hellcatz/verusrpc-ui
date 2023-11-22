@@ -44,10 +44,10 @@
             <input name="amount0" id="amount0" type="number" class="form-control" aria-describedby="basic-addon1" step="0.00000001" min="0">
             <span class="ms-2">
             <select name="currency0" id="currency0" class="form-select" aria-label="SelectCurrency">
-              <option value="{{vars.coin}}" selected>{{vars.coin}}</option>
+              <option value="{{vars.coin}}" selected>{{vars.currencynames[vars.coin]}}</option>
               {% for coin in vars.coins %}
               {% if coin != vars.coin %}
-              <option value="{{coin}}">{{coin}}</option>
+              <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
               {% endif %}
               {% endfor %}
             </select>
@@ -124,6 +124,7 @@
 <script type="text/javascript">
 var coin = "{{vars.coin}}";
 var total_tousers = 1;
+var currencynames = {{ vars.currencynames | json }};
 var balances = {{ balances | json }};
 
 function showConfirmError(rsp) {
@@ -160,7 +161,7 @@ function showConfirmModel(rsp) {
     } else {
       totalAmount[currency] = Number(amount);
     }
-    usersHtml += '<div class="row m-0 p-1 pb-2"><code class="text-lg">' + amount + ' ' + currency + ' to '+ toaddr + '</code></div>';
+    usersHtml += '<div class="row m-0 p-1 pb-2"><code class="text-lg">' + amount + ' ' + currencynames[currency] + ' to '+ toaddr + '</code></div>';
   }
   let html = 'Send' + usersHtml;
   if (rsp.fees) {
@@ -171,14 +172,14 @@ function showConfirmModel(rsp) {
       } else {
         totalAmount[c] = rsp.fees[c];
       }
-      html += '<span><code class="text-lg">' + rsp.fees[c].toFixed(8) + ' ' + c + '</code></span>';
+      html += '<span><code class="text-lg">' + rsp.fees[c].toFixed(8) + ' ' + currencynames[c] + '</code></span>';
     }
     html += "</div>";
   }
   if (Object.keys(totalAmount).length > 0) {
     html += '<div class="row m-0 p-1 pt-0">Total';
-    for (let t in totalAmount) {
-      html += '<span><code class="text-lg">' + totalAmount[t].toFixed(8) + ' ' + t + '</code></span>';
+    for (let c in totalAmount) {
+      html += '<span><code class="text-lg">' + totalAmount[c].toFixed(8) + ' ' + currencynames[c] + '</code></span>';
     }
     html += "</div>";
   }
@@ -296,10 +297,10 @@ function addToUserInput() {
             <input name="amount`+i+`" id="amount`+i+`" type="number" class="form-control" aria-describedby="basic-addon1" step="0.00000001" min="0" value="`+$('#amount0').val()+`">
             <span class="ms-2">
             <select name="currency`+i+`" id="currency`+i+`" class="form-select" aria-label="SelectCurrency">
-              <option value="{{vars.coin}}" selected>{{vars.coin}}</option>
+              <option value="{{vars.coin}}" selected>{{vars.currencynames[vars.coin]}}</option>
               {% for coin in vars.coins %}
               {% if coin != vars.coin %}
-              <option value="{{coin}}">{{coin}}</option>
+              <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
               {% endif %}
               {% endfor %}
             </select>

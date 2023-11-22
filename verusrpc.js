@@ -12,14 +12,28 @@ const RPC_CACHE_DB_NAME = "cacherpc";
 const RPC_CACHE_TIMEOUT = 60000; // milli seconds
 
 
-const IS_TOKEN_FLAG = 0x20;
-const IS_FRACTIONAL_FLAG = 0x01;
-const IS_PBAAS_FLAG = 0x100;
-const IS_GATEWAY_FLAG = 0x80;
-const IS_GATEWAY_CONVERTER_FLAG = 0x200;
-const IS_NFT_TOKEN_FLAG = 0x800;
+const OPT_IS_TOKEN = 0x20;
+const OPT_IS_FRACTIONAL = 0x01;
+const OPT_IS_PBAAS = 0x100;
+const OPT_IS_GATEWAY = 0x80;
+const OPT_IS_GATEWAY_CONVERTER = 0x200;
+const OPT_IS_NFT_TOKEN = 0x800;
 
-function checkOptionsFlag(integer, flag) {
+const FLAG_DEFINITION_NOTARIZATION = 0x01;
+const FLAG_PRE_LAUNCH = 0x02;
+const FLAG_START_NOTARIZATION = 0x04;
+const FLAG_LAUNCH_CONFIRMED = 0x08;
+const FLAG_REFUNDING = 0x10;
+const FLAG_ACCEPTED_MIRROR = 0x20;
+const FLAG_BLOCKONE_NOTARIZATION = 0x40;
+const FLAG_SAME_CHAIN = 0x80;
+const FLAG_LAUNCH_COMPLETE = 0x100;
+const FLAG_CONTRACT_UPGRADE = 0x200;
+
+function checkCurrencyOption(integer, flag) {
+  return (flag & integer) == flag;
+}
+function checkCurrencyFlag(integer, flag) {
   return (flag & integer) == flag;
 }
 
@@ -31,31 +45,30 @@ class VerusRPC {
         this.user = user;
         this.pass = pass;
         this.verbose = verbose;
+        this.minconf = 10;
+        
         this.curid = 0;
+        
+        this.nativecurrencyid = undefined;
+        this.nativename = undefined;
+        
         this.opids = [];
         this.ops = {};
         this.txids = [];
         this.txs = {};
-        this.minconf = 10;
         this.addresses = {};
         this.balances = {};
         this.info = {};
         this.nextblockreward = {};
         this.mininginfo = {};
-        this.currencynames = [];
         this.currencies = {};
         this.tickers = {};
-        this.prelaunch = {};
         this.conversions = [];
 
-        // initially populated with known ids > fullyqualifiedname
-        this.currencyids = {
-          i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV: 'VRSC',
-          i9nwxtKuVYX4MSbeULLiK2ttVi6rUEhh4X: 'vETH',
-          i3f7tSctFkiPpiedY8QR5Tep9p4qDVebDx: 'Bridge.vETH',
-          iCkKJuJScy4Z6NSDK7Mt42ZAB2NEnAE1o4: 'MKR.vETH',
-          iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM: 'DAI.vETH'
-        };
+        // id to name translation table
+        this.currencyids = {};
+        // name to id translation table
+        this.currencynames = {};
     }
 
     db_get(query, params) {
@@ -106,19 +119,7 @@ class VerusRPC {
         }
       }
     }
-        
-    getnativecoin() {
-      let coin = "VRSC";
-      if (this.info && this.info.name) {
-        coin = this.info.name;
-      } else if (this.currencynames.length > 0) {
-        coin = this.currencynames[0];
-      } else {
-        console.error("getnativecoin: assuming VRSC is native currency");
-      }
-      return coin;
-    }
-    
+
     async createCache() {
          let q = `CREATE TABLE `+RPC_CACHE_DB_NAME+` (
   method TEXT PRIMARY KEY,
@@ -166,10 +167,11 @@ class VerusRPC {
       return value;
     }
     
-    set_market_ticker(name, ticker) {
-      if (this.currencies[name]) {
-        this.tickers[name] = ticker;
-        this.tickers[name].last_udpated = Date.now();
+    set_market_ticker(currencyid, ticker) {
+      if (this.currencies[currencyid]) {
+        this.tickers[currencyid] = ticker;
+        this.tickers[currencyid].last_udpated = Date.now();
+        this.currencies[currencyid].coinpaprika = this.tickers[currencyid];
       }
     }
     
@@ -325,6 +327,8 @@ class VerusRPC {
     }
     get_conversion_by_details(currency, convertto, destination, amount, slippage=0.0) {
       let matches = [];
+      let cid = (currency.startsWith("i") && currency.length===34)?currency:this.currencyids[currency];
+      let ctid = (convertto.startsWith("i") && currency.length===34)?convertto:this.currencyids[convertto];
       for (let i in this.conversions) {
         let c = this.conversions[i];
         let pAmount = c.received || c.estimate;
@@ -365,7 +369,7 @@ class VerusRPC {
         let start = orig_start;
         let cache = await this.getCache(method, params);
         if (cache && useCache !== false) {
-          if (useCache === true || Date.now() - cache.timestamp < RPC_CACHE_TIMEOUT) {            
+          if (useCache === true || (start - cache.timestamp) < RPC_CACHE_TIMEOUT) {
             return { result: JSON.parse(cache.response), error:undefined };
           }
         }
@@ -461,7 +465,9 @@ class VerusRPC {
         if (rsp.result.chainid && rsp.result.name) {
           let ncurrency = await this.getCurrency(rsp.result.name, false);
           if (ncurrency) {
-            console.log("Detected native chain", {chainid: rsp.result.chainid, name: rsp.result.name});
+            this.nativecurrencyid = rsp.result.chainid;
+            this.nativename = rsp.result.name;
+            console.log("Detected native chain", {chainid: this.nativecurrencyid, name: this.nativename});
           } else {
             console.error("Failed to fetch native currency details from daemon");
           }
@@ -519,13 +525,13 @@ class VerusRPC {
       return r;
     }
     
-    async getTemplateVars(useCache=undefined) {      
-      this.info = await this.getInfo(useCache);
-      this.nextblockreward = await this.getNextBlockReward(useCache);
-      this.mininginfo = await this.getMiningInfo(useCache);
-      this.currencynames = await this.listCurrencies(useCache);
+    async getTemplateVars(useCache=undefined) {
       this.addresses = await this.getAddresses(useCache);
-      this.balances = await this.getBalances(0, useCache);
+      this.balances = await this.getBalances(1, useCache);
+
+      this.mininginfo = await this.getMiningInfo(useCache);
+      this.nextblockreward = await this.getNextBlockReward(useCache);
+
       const opids = await this.listOperationIDs(useCache);
       const txids = await this.monitorTransactionIDs(useCache);
       const opid_counts = {};
@@ -533,6 +539,7 @@ class VerusRPC {
       for (let key in keys) {
         opid_counts[keys[key]] = Object.keys(opids[keys[key]]).length;
       }
+      
       // sanity check
       if (!this.info) {
         this.info = {};
@@ -549,22 +556,27 @@ class VerusRPC {
       if (!this.nextblockreward) {
         this.nextblockreward = {};
       }
+
       return {
-        coin: this.getnativecoin(),
-        coins: Object.values(this.balances.currencies),
+        coin: this.nativecurrencyid,
+        coins: Object.keys(this.balances.currencynames),
+        
+        addresses: this.addresses,
         balances: this.balances,
-        prelaunch_count: Object.keys(this.prelaunch).length,
-        prelaunch: this.prelaunch,
-        currencynames: this.currencynames,
+        
         currencyids: this.currencyids,
+        currencynames: this.currencynames,
+        
         currencies: this.currencies,
         conversions: this.conversions,
-        addresses: this.addresses,
+        
         txid_count: this.txids.length,
         txids: txids,
+        
         opid_count: this.opids.length,
         opid_counts: opid_counts,
         opids: opids,
+        
         info: this.info,
         nextblockreward: this.nextblockreward,
         mininginfo: this.mininginfo,
@@ -661,27 +673,25 @@ class VerusRPC {
                     let fees = s.reservetransfer.fees;
                     let fcurrencyid = s.reservetransfer.feecurrencyid
                     let destcurrencyid = s.reservetransfer.destinationcurrencyid;
-                    let via = this.currencyids[s.reservetransfer.via];
+                    let via = s.reservetransfer.via;
                     let destination = s.reservetransfer.destination.address;
                     let isMine = this.isMyAddress(destination);
-                    let values = {};
-                    for (let i in valuesbyid) {
-                      values[this.currencyids[i]] = valuesbyid[i];
-                    }
                     if (convert & isMine) {
-                      let currency = undefined;
+                      let currencyid = undefined;
                       let amount = undefined;
-                      for (let i in values) {
-                        currency = i;
-                        amount = values[i];
+                      for (let i in valuesbyid) {
+                        currencyid = i;
+                        amount = valuesbyid[i];
                         //console.log(fees);
                         // add conversion
-                        this.add_conversion(txid, currency, this.currencyids[destcurrencyid], via, amount, destination, n, now);
+                        this.add_conversion(txid, currencyid, destcurrencyid, via, amount, destination, n, now);
                         // update spentTxId for active conversions
                         if (o.spentTxId) {
                           for(let i in cmatches) {
                             let conversion = cmatches[i];
-                            if (conversion.convertto === this.currencyids[destcurrencyid] && (!conversion.spentTxId || conversion.spentTxId != o.spentTxId)) {
+                            let cid = this.getCurrencyIdFromName(conversion.convertto);
+                            if (cid && cid === destcurrencyid && (!conversion.spentTxId || conversion.spentTxId != o.spentTxId)) {
+                              console.log("conversion forward progress", o.spentTxId);
                               conversion.spentTxId = o.spentTxId; // monitor for finalizeexport spentTxId
                               conversion.spentTxId2 = undefined;  // force a new lookup
                             }
@@ -697,22 +707,21 @@ class VerusRPC {
                     for(let i in cmatches) {
                       let conversion = cmatches[i];
                       if (o.scriptPubKey) {
-                        // check forward progress in spendTxId
-                        if (s.finalizeexport && o.spentTxId && (!conversion.spentTxId2 || conversion.spentTxId2 != o.spentTxId)) {
-                          conversion.spentTxId2 = o.spentTxId;
-                        }
                         let isMine = false;
                         for (let i in s.addresses) {
                           if (conversion.destination == s.addresses[i]) {
                             isMine = true;
                           }
                         }
+
                         if (isMine) {
                           // get all our 'n' amounts in outputs
                           if (s.reserveoutput && s.reserveoutput.currencyvalues && txid != conversion.txid && conversion.spentTxId && conversion.spentTxId2) {
                             // make sure the conversion is for the currency
-                            let fname = this.currencyids[Object.keys(s.reserveoutput.currencyvalues)[0]];
-                            if (fname === conversion.convertto) {
+                            let id = Object.keys(s.reserveoutput.currencyvalues)[0];
+                            let cid = this.getCurrencyIdFromName(id);
+                            // match by name or by id
+                            if (id == conversion.convertto || cid === conversion.convertto) {
                               amount = s.reserveoutput.currencyvalues[Object.keys(s.reserveoutput.currencyvalues)[0]];
                               if (conversion.status === "pending") {
                                 conversion.status = "complete";
@@ -722,7 +731,9 @@ class VerusRPC {
                             }
                           } else if (o.value && o.value > 0.0 && txid != conversion.txid && conversion.spentTxId && conversion.spentTxId2) {
                             // make sure the conversion is for the native coin
-                            if (conversion.convertto === this.getnativecoin()) {                              
+                            let id = conversion.convertto;
+                            let cid = this.getCurrencyIdFromName(id);
+                            if (cid && cid === this.nativecurrencyid) { 
                               amount = o.value;
                               if (conversion.status === "pending") {
                                 conversion.status = "complete";
@@ -733,9 +744,14 @@ class VerusRPC {
                           }
                         }
                       }
+
+                      if (conversion.status  === "pending" && s.finalizeexport && o.spentTxId) {
+                        console.log("conversion waiting for finalizeexport in", o.spentTxId);
+                        conversion.spentTxId2 = o.spentTxId;
+                      }
                     }
+                    
                   }
-                  
                 }
 
                 vout_amounts.push(amount);
@@ -762,7 +778,7 @@ class VerusRPC {
                     console.log("conversion fixup, received does not match closest to estimate!", conversion.received, closest);
                     conversion.received = closest;
                   }
-                  console.log("conversion success", conversion.txid, conversion);
+                  console.log("conversion success", conversion.uid, conversion.txid);
                 }
               }
             }
@@ -883,6 +899,8 @@ class VerusRPC {
               if (useCache === false) {
                 // add txid for monitoring
                 this.add_txid(op.result.txid);
+                // update all balances
+                this.balances = await this.getBalances(1, false);
               }
             }
             // clear from monitoring
@@ -926,6 +944,12 @@ class VerusRPC {
       return r;
     }
     
+    getCurrencyIdFromName(name) {
+      if (this.currencyids[name]) { return this.currencyids[name]; }
+      if (this.currencies[name]) { return name; }
+      return undefined;
+    }
+    
     async sendCurrency(fromAddress, toArray=[], minconf=1, fee=0, verifyFirst=true) {
       let r = { invalid:[] };
 
@@ -943,7 +967,6 @@ class VerusRPC {
       }
       
       let rpcMethod = "sendcurrency";
-
       if (toArray.length == 0) {
         r.invalid.push("toAddress0");
         r.invalid.push("amount0");
@@ -960,11 +983,26 @@ class VerusRPC {
           hasPublicAddress = true;
         }
 
-        // use default if undefined
+        // validate currencies and translate to currencyid if needed
         if (!to.currency) {
-          to.currency = this.getnativecoin();
-        } else if (!this.currencies[to.currency]) {
-          r.invalid.push("currency"+i);
+          to.currency = this.nativecurrencyid;
+        } else {
+          to.currency = this.getCurrencyIdFromName(to.currency);
+          if (!to.currency) {
+            r.invalid.push("currency"+i);
+          }
+        }
+        if (to.via) {
+          to.via = this.getCurrencyIdFromName(to.via);
+          if (!to.via) {
+            r.invalid.push("via"+i);
+          }
+        }
+        if (to.exportto) {
+          to.exportto = this.getCurrencyIdFromName(to.exportto);
+          if (!to.exportto) {
+            r.invalid.push("exportto"+i);
+          }
         }
         
         // amount must be a positive number
@@ -975,7 +1013,7 @@ class VerusRPC {
         to.amount = to.amount.toFixed(8);
 
         // z-addr can only accept native currency
-        if (to.address.startsWith("zs1") && to.currency != this.getnativecoin()) {
+        if (to.address.startsWith("zs1") && to.currency !== this.nativecurrencyid) {
           r.invalid.push("currency"+i);
         } else {
           // use z_sendmany when sending to self
@@ -985,7 +1023,7 @@ class VerusRPC {
           }
         }
         // if using z_sendmany, do not send currency unsupported
-        if (to.address.startsWith("zs1") && rpcMethod == "z_sendmany") {
+        if (rpcMethod == "z_sendmany") {
           to.currency = undefined;
         }
       }
@@ -1018,29 +1056,29 @@ class VerusRPC {
                 let rsp2 = await this.request("decoderawtransaction", [rawtxhex], false);
                 if (rsp2 && !rsp2.error) {
                   let fees = {};
-                  if (!fees[this.getnativecoin()]) {
-                    fees[this.getnativecoin()] = 0;
+                  if (!fees[this.nativecurrencyid]) {
+                    fees[this.nativecurrencyid] = 0;
                   }
                   if (rsp.result.feeamount) {
-                    fees[this.getnativecoin()] += rsp.result.feeamount;
-                    console.log("feeamount", rsp.result.feeamount, this.getnativecoin());
+                    fees[this.nativecurrencyid] += rsp.result.feeamount;
+                    console.log("feeamount", rsp.result.feeamount, this.nativecurrencyid);
                   }
                   // go thru each vout checking for things
                   for (let n in rsp2.result.vout) {
                     let o = rsp2.result.vout[n];
                     if (o.scriptPubKey) {
                       if (o.scriptPubKey.reservetransfer) {
-                        let feecurrency = this.currencyids[o.scriptPubKey.reservetransfer.feecurrencyid];
+                        let feecurrency = o.scriptPubKey.reservetransfer.feecurrencyid;
                         if (!fees[feecurrency]) {
                           fees[feecurrency] = 0;
                         }
                         if (o.scriptPubKey.reservetransfer.fees) {
                           fees[feecurrency] += o.scriptPubKey.reservetransfer.fees;
-                          console.log("reservetransfer.fees", o.scriptPubKey.reservetransfer.fees, feecurrency);
+                          //console.log("reservetransfer.fees", o.scriptPubKey.reservetransfer.fees, feecurrency);
                         }
                         if (o.scriptPubKey.reservetransfer.destination && o.scriptPubKey.reservetransfer.destination.fees) {
                           fees[feecurrency] += o.scriptPubKey.reservetransfer.destination.fees;
-                          console.log("reservetransfer.destination.fees", o.scriptPubKey.reservetransfer.destination.fees, feecurrency);
+                          //console.log("reservetransfer.destination.fees", o.scriptPubKey.reservetransfer.destination.fees, feecurrency);
                         }
                       }
                     }
@@ -1054,9 +1092,9 @@ class VerusRPC {
                 }
               } else {
                 if (fee && fee > 0) {
-                  r.fees[this.getnativecoin()] = fee;
+                  r.fees[this.nativecurrencyid] = fee;
                 } else {
-                  r.fees[this.getnativecoin()] = 0.0001;
+                  r.fees[this.nativecurrencyid] = 0.0001;
                 }
               }
 
@@ -1068,9 +1106,9 @@ class VerusRPC {
           }
         } else {
           if (fee && fee > 0) {
-            r.fees[this.getnativecoin()] = fee;
+            r.fees[this.nativecurrencyid] = fee;
           } else {
-            r.fees[this.getnativecoin()] = 0.0001;
+            r.fees[this.nativecurrencyid] = 0.0001;
           }
         }
         r.verify = true;
@@ -1122,6 +1160,7 @@ class VerusRPC {
       if (rsp && !rsp.error) {
           data = rsp.result;
           currentBlockHeight = data.blocks;
+          this.info = data;
       } else {
         console.error(rsp);
       }
@@ -1138,111 +1177,163 @@ class VerusRPC {
       }
       return data;
     }
-    
-    async getReserves(currency, name) {
-      if (this.currencies[currency] && this.currencies[currency].bestcurrencystate && this.currencies[currency].bestcurrencystate.reservecurrencies) {
-        for (let i in this.currencies[currency].bestcurrencystate.reservecurrencies) {
-          let c = this.currencies[currency].bestcurrencystate.reservecurrencies[i];
-          let cname = this.currencyids[c.currencyid];
-          if (cname === name) {
-            return c.reserves;
-          }
+
+    getReserveCurrencyPrice(state, baseid, quoteid) {
+      let baseReserves = 0;
+      let quoteReserves = 0;
+      let cstate = state.currencystate;
+      if (!cstate && state.importnotarization && state.importnotarization.currencystate) { cstate = state.importnotarization.currencystate; }
+      if (state.bestcurrencystate) { cstate = state.bestcurrencystate; }
+      for (let i in cstate.reservecurrencies) {
+        let c = cstate.reservecurrencies[i];
+        if (c.currencyid == baseid) {
+          baseReserves = c.reserves;
+        }
+        if (c.currencyid == quoteid) {
+          quoteReserves = c.reserves;
         }
       }
-      return -1;
-    };
+      if (baseReserves > 0 && quoteReserves > 0) {
+        return quoteReserves / baseReserves;
+      }      
+      return 0;
+    }
     
-    async getReserveCurrencyPrice(currency, base, to) {
-      let baseReserves = await this.getReserves(currency, base);
-      let toReserves = await this.getReserves(currency, to);
-      if (baseReserves > 0) {
-        return baseReserves / toReserves;
+    async getCurrencyState(currencyid, startBlock, endBlock, step=30) {
+      let r = undefined;
+      let d = await this.request("getcurrencystate", [currencyid, [startBlock, endBlock, step].join(",")], true);
+      if (d && !d.error && d.result) {
+        r = d.result;
       }
-      return -1;
+      return r;
     }
     
     async getCurrency(lookup, useCache=undefined) {
       let r = undefined;
       let d = await this.request("getcurrency", [lookup], useCache);
       if (d && !d.error) {
+        return await this.parseCurrency(d);
+      }
+      return r
+    }
+    
+    async parseCurrency(d) {
+      let r = undefined;
+      if (d && !d.error) {
         let currencyid = d.result.currencyid;
         let name = d.result.fullyqualifiedname;
-        if (this.currencies[name]) {
-          this.currencies[name] = d.result;
+
+        // cache currencyid > name table
+        if (this.currencies[currencyid]) {
+          // update currency cache
+          this.currencies[currencyid] = d.result;
         } else {
-          this.currencies[name] = d.result;
-          this.currencyids[currencyid] = name;
-          this.currencynames.push(name);
+          // initial cache: currency, id>name, name
+          this.currencies[currencyid] = d.result;
+          this.currencyids[name] = currencyid;
+          this.currencynames[currencyid] = name;
         }
 
         // detection of options
-        d.result.isToken = checkOptionsFlag(d.result.options, IS_TOKEN_FLAG);
-        d.result.isFractional = checkOptionsFlag(d.result.options, IS_FRACTIONAL_FLAG);
-        d.result.isPBaaS = checkOptionsFlag(d.result.options, IS_PBAAS_FLAG);
-        d.result.isGateway = checkOptionsFlag(d.result.options, IS_GATEWAY_FLAG);
-        d.result.isGatewayConverter = checkOptionsFlag(d.result.options, IS_GATEWAY_CONVERTER_FLAG);
-        d.result.isNFT = checkOptionsFlag(d.result.options, IS_NFT_TOKEN_FLAG);
+        d.result.isToken = checkCurrencyOption(d.result.options, OPT_IS_TOKEN);
+        d.result.isFractional = checkCurrencyOption(d.result.options, OPT_IS_FRACTIONAL);
+        d.result.isPBaaS = checkCurrencyOption(d.result.options, OPT_IS_PBAAS);
+        d.result.isGateway = checkCurrencyOption(d.result.options, OPT_IS_GATEWAY);
+        d.result.isGatewayConverter = checkCurrencyOption(d.result.options, OPT_IS_GATEWAY_CONVERTER);
+        d.result.isNFT = checkCurrencyOption(d.result.options, OPT_IS_NFT_TOKEN);
+        
+        // detect prelaunch
+        if (this.info.blocks && d.result.startblock > this.info.blocks) {
+          d.result.isPrelaunch = true;
+        }
+        // detect failed launch
+        if (!d.result.isPrelaunch && d.result.isFractional && d.result.bestcurrencystate && d.result.bestcurrencystate.supply == 0) {
+          d.result.isFailedLaunch = true;
+        }
+        /* TODO, check flags ?
+        // detection of currenctstate flags
+        if (d.result.bestcurrencystate && d.result.bestcurrencystate.flags) {
+          d.result.isRefund = checkCurrencyFlag(d.result.bestcurrencystate.flags, FLAG_REFUNDING);
+          if (d.result.isRefund) {
+            console.log("refund", d.result.currencyid);
+          }
+        }
+        */
 
-        // attempt to find value (pricing)
-        if (this.currencies[name].bestcurrencystate && this.currencies[name].bestcurrencystate.reservecurrencies) {
+        // gather market pricing
+        if (this.currencies[currencyid].bestcurrencystate && this.currencies[currencyid].bestcurrencystate.reservecurrencies) {
+          
+          if (!d.result.liquidity) { d.result.liquidity = {}; }
+          
           // calculate "peg" prices between each reserve currency
-          for (let i in this.currencies[name].bestcurrencystate.reservecurrencies) {
-            let c = this.currencies[name].bestcurrencystate.reservecurrencies[i];
-            for (let z in this.currencies[name].bestcurrencystate.reservecurrencies) {
-              let d = this.currencies[name].bestcurrencystate.reservecurrencies[z];
-              let base = this.currencyids[c.currencyid];
-              let cname = this.currencyids[d.currencyid];
-              let priceBASE = await this.getReserveCurrencyPrice(name, base, cname);
-              if (priceBASE > -1 && Number.isFinite(priceBASE)) {
-                if (!this.currencies[name].bestcurrencystate.reservecurrencies[z].prices) { this.currencies[name].bestcurrencystate.reservecurrencies[z].prices = {}; }
-                this.currencies[name].bestcurrencystate.reservecurrencies[z].prices[base] = priceBASE;
+          for (let i in this.currencies[currencyid].bestcurrencystate.reservecurrencies) {
+            let c = this.currencies[currencyid].bestcurrencystate.reservecurrencies[i];
+            
+            //let priceinreserve = (c.reserves / (d.result.bestcurrencystate.supply  * d.result.weights[i]));
+            let liquidity = (d.result.bestcurrencystate.supply * c.priceinreserve);
+            d.result.liquidity[c.currencyid] = liquidity;
+
+            for (let z in this.currencies[currencyid].bestcurrencystate.reservecurrencies) {
+              let cc = this.currencies[currencyid].bestcurrencystate.reservecurrencies[z];
+              let price = this.getReserveCurrencyPrice(d.result, c.currencyid, cc.currencyid);
+              if (price > -1 && Number.isFinite(price)) {
+                if (!this.currencies[currencyid].bestcurrencystate.reservecurrencies[z].prices) { this.currencies[currencyid].bestcurrencystate.reservecurrencies[z].prices = {}; }
+                this.currencies[currencyid].bestcurrencystate.reservecurrencies[z].prices[c.currencyid] = price;
               }
             }
           }
         }
-        
+
         r = d.result;
-        
+
         // add any cached market tickers from coinpaprika
-        if (this.tickers[d.result.fullyqualifiedname]) {
-          r.coinpaprika = this.tickers[d.result.fullyqualifiedname];
+        if (this.tickers[currencyid]) {
+          r.coinpaprika = this.tickers[currencyid];
         }
       }
 
       return r;
     }
     
-    async listCurrencies(useCache=undefined) {      
+    async listCurrencies(useCache=undefined) {
       let rsp = await this.request("listcurrencies", [], useCache);
       if (rsp && !rsp.error) {
         let list = rsp.result;
         for (let i in list) {
-          if (list[i].currencydefinition && list[i].currencydefinition.fullyqualifiedname) {
-            let name = list[i].currencydefinition.fullyqualifiedname;
-            if (!this.currencies[name] || useCache === false) {
-              let currency = await this.getCurrency(name, useCache);
+          // basic sanity check
+          if (list[i].currencydefinition && list[i].currencydefinition.currencyid) {
+            let currencyid = list[i].currencydefinition.currencyid;
+
+            let prelaunch = false;
+            if (this.info && this.info.blocks && list[i].currencydefinition.startblock > this.info.blocks) {
+              prelaunch = true;
+            }
+
+            // initially cache the currency if needed
+            // also keep updating currencies in pre-launch
+            if (!this.currencies[currencyid] || prelaunch) {
+              let currency = await this.getCurrency(currencyid, (prelaunch?false:useCache));
               if (currency) {
                 if (currency.isGateway) {
                   let parentid = currency.currencyid;
-                  let parentname = currency.fullyqualifiedname;
                   let l = await this.request("listcurrencies", [{fromsystem:parentid}], useCache);
                   if (l && !l.error && l.result) {
                     for (let r in l.result) {
-                      if (l.result[r] && l.result[r].currencydefinition && l.result[r].currencydefinition.fullyqualifiedname) {
-                        let name2 = l.result[r].currencydefinition.fullyqualifiedname;
-                        let currency2 = await this.getCurrency(name2, useCache);
+                      if (l.result[r] && l.result[r].currencydefinition && l.result[r].currencydefinition.currencyid) {
+                        let currencyid2 = l.result[r].currencydefinition.currencyid;
+                        let currency2 = await this.getCurrency(currencyid2, useCache);
                       }
                     }
                   }
                 }
               }
             }
+
           } else {
-            console.error("unknown currency", list[i]);
+            console.error("unexpected currency definition", list[i]);
           }
         }
       }
-      return this.currencynames;
     }
     
     async getOffers(currencyid, isCurrency=false, withtx=false, useCache=undefined) {
@@ -1253,7 +1344,30 @@ class VerusRPC {
       }
       return r;
     }
+
+    async getImports(currencyid, startBlock, endBlock) {
+      // basic sanity
+      if (!startBlock || !endBlock) {
+        return undefined;
+      }
+      if (endBlock < startBlock) {
+        startBlock = endBlock;
+      }
+      // limit to max 10K records to process (20 x 500)
+      if (endBlock - startBlock > 1440) {
+        startBlock = (endBlock - 1440);
+      }
+      let r = undefined;
+      let rsp = await this.request("getimports", [currencyid, startBlock, endBlock], true);
+      if (rsp && !rsp.error) {
+        if (rsp.result && Array.isArray(rsp.result)) {
+          r = rsp.result;
+        }
+      }
+      return r;
+    }
     
+    //***NOTE. this function is generally fast to return, but can miss some addresses with balances
     async getAddresses(useCache=undefined) {
       let addresses = {identities:[], public:[], private:[]};
       let rsp = await this.request("getaddressesbyaccount", [""], useCache);
@@ -1286,7 +1400,7 @@ class VerusRPC {
     }
 
     //***NOTE. this function can take a very long time to return
-    async getCurrencyBalance(address, minconf=0, friendlynames=true, useCache=undefined) {
+    async getCurrencyBalance(address, minconf=0, friendlynames=false, useCache=undefined) {
       let balance = undefined;
       let rsp = await this.request("getcurrencybalance", [address, minconf, friendlynames], useCache);
       if (rsp && !rsp.error) {
@@ -1312,7 +1426,7 @@ class VerusRPC {
     //***NOTE. this function can take a very long time to return
     async getBalances(minconf=0, useCache=undefined) {
       let totals = {};
-      let currencies = [];
+      let currencynames = {};
       let balances = {};
       let addresses = await this.getAddresses(useCache);
       if (addresses !== undefined) {
@@ -1337,22 +1451,23 @@ class VerusRPC {
           let addr = addresses.identities[i];
           rsp = await this.getCurrencyBalance(addr, minconf);
           if (rsp !== undefined) {
-            for (let type in rsp) {
-              if (currencies.indexOf(type) < 0) {
-                currencies.push(type);
+            for (let currencyid in rsp) {
+              let name = this.currencies[currencyid].fullyqualifiedname || currencyid;
+              if (!currencynames[currencyid]) {
+                currencynames[currencyid] = name;
               }
-              if (totals[type]) {
-                  totals[type] += rsp[type];
+              if (totals[currencyid]) {
+                  totals[currencyid] += rsp[currencyid];
               } else {
-                  totals[type] = rsp[type];
+                  totals[currencyid] = rsp[currencyid];
               }
-              if (balances[type] === undefined) {
-                  balances[type] = {};
+              if (balances[currencyid] === undefined) {
+                  balances[currencyid] = {};
               }
-              if (balances[type][addr]) {
-                  balances[type][addr] += rsp[type];
+              if (balances[currencyid][addr]) {
+                  balances[currencyid][addr] += rsp[currencyid];
               } else {
-                  balances[type][addr] = rsp[type];
+                  balances[currencyid][addr] = rsp[currencyid];
               }
             }
           }
@@ -1362,32 +1477,34 @@ class VerusRPC {
           let addr = addresses.public[i];
           rsp = await this.getCurrencyBalance(addr, minconf);
           if (rsp !== undefined) {
-            for (let type in rsp) {
-              if (currencies.indexOf(type) < 0) {
-                currencies.push(type);
+            for (let currencyid in rsp) {
+              let name = this.currencies[currencyid].fullyqualifiedname || currencyid;
+              if (!currencynames[currencyid]) {
+                currencynames[currencyid] = name;
               }
-              if (totals[type]) {
-                  totals[type] += rsp[type];
+              if (totals[currencyid]) {
+                  totals[currencyid] += rsp[currencyid];
               } else {
-                  totals[type] = rsp[type];
+                  totals[currencyid] = rsp[currencyid];
               }
-              if (balances[type] === undefined) {
-                  balances[type] = {};
+              if (balances[currencyid] === undefined) {
+                  balances[currencyid] = {};
               }
-              if (balances[type][addr]) {
-                  balances[type][addr] += rsp[type];
+              if (balances[currencyid][addr]) {
+                  balances[currencyid][addr] += rsp[currencyid];
               } else {
-                  balances[type][addr] = rsp[type];
+                  balances[currencyid][addr] = rsp[currencyid];
               }
             }
           }
         }
         
         for (let i in addresses.private) {
-          // zaddr can only have VRSC
-          let type = "VRSC";
-          if (currencies.indexOf(type) < 0) {
-            currencies.push(type);
+          // zaddr can only have the native currency
+          let currencyid = this.nativecurrencyid;
+          let name = this.currencies[currencyid].fullyqualifiedname || currencyid;
+          if (!currencynames[currencyid]) {
+            currencynames[currencyid] = name;
           }
           let zaddr = addresses.private[i];
           rsp = await this.request("z_getbalance", [zaddr, minconf], useCache);
@@ -1395,66 +1512,25 @@ class VerusRPC {
               let balance = rsp.result;
               if (!balance) { balance = 0; }
               if (balance > 0) {
-                  if (totals[type]) {
-                      totals[type] += balance;
+                  if (totals[currencyid]) {
+                      totals[currencyid] += balance;
                   } else {
-                      totals[type] = balance;
+                      totals[currencyid] = balance;
                   }
-                  if (balances[type] === undefined) {
-                      balances[type] = {};
+                  if (balances[currencyid] === undefined) {
+                      balances[currencyid] = {};
                   }
-                  if (balances[type][zaddr]) {
-                      balances[type][zaddr] += balance;
+                  if (balances[currencyid][zaddr]) {
+                      balances[currencyid][zaddr] += balance;
                   } else {
-                      balances[type][zaddr] = balance;
+                      balances[currencyid][zaddr] = balance;
                   }
               }
           }
         }
       }
-
-      return {totals:totals, currencies:currencies, balances:balances};
-    }
-    
-    async getVolume(basketid, startBlock, endBlock) {
-      // basic sanity
-      if (endBlock < startBlock) {
-        startBlock = endBlock;
-      }
-      // limit to max 30K records to process (60 x 500)
-      if (endBlock - startBlock > 60) {
-        startBlock = (endBlock - 60);
-      }
-      let r = {};
-      let rsp = await this.request("getimports", [basketid, startBlock, endBlock], true);
-      if (rsp && !rsp.error) {
-        for (let i in rsp.result) {
-          let imp = rsp.result[i];
-          for (let c in imp.importnotarization.currencystate.currencies) {
-            let name = this.currencyids[c];
-            if (!r[name]) {
-              r[name] = {reservein:0, reserveout:0, primarycurrencyin:0, primarycurrencyout:0}
-            }
-            let cd = imp.importnotarization.currencystate.currencies[c];
-            if (cd.reservein) {
-              r[name].reservein += cd.reservein;
-            }
-            if (cd.reserveout) {
-              r[name].reserveout += cd.reserveout;
-            }
-            if (cd.primarycurrencyin) {
-              r[name].primarycurrencyin += cd.primarycurrencyin;
-            }
-            if (cd.primarycurrencyout) {
-              r[name].primarycurrencyout += cd.primarycurrencyout;
-            }
-          }
-        }
-        if (rsp.result) {
-          console.log(r);
-        }
-      }
-      return r;
+      
+      return {totals:totals, currencynames:currencynames, balances:balances};
     }
 };
 

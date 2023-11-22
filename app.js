@@ -49,6 +49,10 @@ app.use('/webfonts', express.static(path.join(__dirname, 'node_modules/@fortawes
 app.use('/scss', express.static(path.join(__dirname, 'node_modules/@fortawesome/fontawesome-free/scss')))
 app.use('/less', express.static(path.join(__dirname, 'node_modules/@fortawesome/fontawesome-free/less')))
 
+// amcharts5
+app.use('/lib/5', express.static(path.join(__dirname, 'amcharts5.5.7')))
+
+
 app.use('/', api)
 
 
@@ -112,7 +116,7 @@ async function startApp() {
     return;
   }
   
-  let verbose = 0;
+  let verbose = config.verbose || 0;
   argv.forEach((val, index) => {
     console.log(`${index}: ${val}`);
     if (val.indexOf("verbose") > -1) {
@@ -127,15 +131,16 @@ async function startApp() {
   const rpcuser = config.rpcuser || vconf.rpcuser || "user";
   const rpcpass = config.rpcpassword || vconf.rpcpassword || "pass";
 
-  // TODO, support https ?
   let daemon_url = "http://" + rpchost + ":" + rpcport;
-  console.log("Trying daemon url", daemon_url);
+
   vrpc = new VerusRPC(daemon_url, rpcuser, rpcpass, verbose);
+  vproc = new VerusPROC(vrpc, api, verbose);
   
   await vrpc.init();
-  
-  vproc = new VerusPROC(vrpc, 1);  
-  
+  await vproc.initPlugins();
+
+  console.log("Connecting to daemon url", daemon_url);
+
   // wait for verusd to become available
   let start = Date.now();
   let verus = await vrpc.waitForOnline();
@@ -154,6 +159,11 @@ async function startApp() {
 
     // pass config and verusrpc to api
     await api.init(config, vrpc);
+    
+    console.log("Caching currencies...");
+    
+    // cache currencies now
+    await vrpc.listCurrencies(false);
 
     // start verus processor
     await vproc.start();

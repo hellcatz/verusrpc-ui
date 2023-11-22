@@ -1,0 +1,346 @@
+<div class="d-flex justify-content-end m-0 py-0 pe-4 w-100">
+<form id="view_pair" class="d-flex">
+  <span class="m-2 pe-2 text-nowrap">Pair</span>
+  <select id="pairA" class="form-select form-select-md me-2" aria-label="Small select example">
+    <option value="{{ currency.currencyid }}" selected>{{ currency.fullyqualifiedname }}</option>
+  {% for bs in currency.bestcurrencystate.reservecurrencies %}
+  {%  assign baseName = currency.currencynames[bs.currencyid] %}
+    <option value="{{bs.currencyid}}">{{baseName}}</option>
+  {% endfor %}
+  </select>
+  <button id="chart-btn-swap"type="button" class="btn btn-secondary me-2"><i class="fa-solid fa-right-left"></i></button>
+  <select id="pairB" class="form-select form-select-md me-2" aria-label="Small select example">
+  {% for bs in currency.bestcurrencystate.reservecurrencies %}
+  {%  assign baseName = currency.currencynames[bs.currencyid] %}
+    <option value="{{bs.currencyid}}">{{baseName}}</option>
+  {% endfor %}
+    <option value="{{ currency.currencyid }}">{{ currency.fullyqualifiedname }}</option>
+  </select>
+  <button type="submit" class="btn btn-secondary">View</button>
+</form>
+</div>
+
+<div class="m-4 mt-1 border rounded">  
+  
+<!-- Styles -->
+<style>
+#chartcontrols {
+  height: auto;
+  padding: 5px 5px 0 16px;
+  max-width: 100%;
+}
+
+#chartdiv {
+  width: 100%;
+  height: 600px;
+  max-width: 100%;
+}
+</style>
+
+<!-- Resources -->
+<script src="/lib/5/index.js"></script>
+<script src="/lib/5/xy.js"></script>
+<script src="/lib/5/stock.js"></script>
+<script src="/lib/5/themes/Animated.js"></script>
+<script src="/lib/5/themes/Dark.js"></script>
+
+<!-- Chart code -->
+<script>
+var currencynames = {{vars.currencynames | json}};
+am5.ready(async function() {
+
+/**
+ * ---------------------------------------
+ * This demo was created using amCharts 5.
+ * 
+ * For more information visit:
+ * https://www.amcharts.com/
+ * 
+ * Documentation is available at:
+ * https://www.amcharts.com/docs/v5/
+ * ---------------------------------------
+ */
+
+// Create root element
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/getting-started/#Root_element
+var root = am5.Root.new("chartdiv");
+
+
+// Set themes
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/concepts/themes/
+root.setThemes([
+  am5themes_Dark.new(root)
+]);
+
+
+// Create a stock chart
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/stock/#Instantiating_the_chart
+var stockChart = root.container.children.push(am5stock.StockChart.new(root, {
+}));
+
+
+// Set global number format
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/concepts/formatters/formatting-numbers/
+root.numberFormatter.set("numberFormat", "#,###.00");
+
+
+// Create a main stock panel (chart)
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/stock/#Adding_panels
+var mainPanel = stockChart.panels.push(am5stock.StockPanel.new(root, {
+  wheelY: "zoomX",
+  panX: true,
+  panY: true
+}));
+
+
+// Create value axis
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/xy-chart/axes/
+var valueAxis = mainPanel.yAxes.push(am5xy.ValueAxis.new(root, {
+  renderer: am5xy.AxisRendererY.new(root, {
+    pan: "zoom"
+  }),
+  extraMin: 0.1, // adds some space for for main series
+  tooltip: am5.Tooltip.new(root, {}),
+  numberFormat: "#.##a",
+  extraTooltipPrecision: 2
+}));
+
+var dateAxis = mainPanel.xAxes.push(am5xy.GaplessDateAxis.new(root, {
+  baseInterval: {
+    timeUnit: "minute",
+    count: 30
+  },
+  renderer: am5xy.AxisRendererX.new(root, {}),
+  tooltip: am5.Tooltip.new(root, {})
+}));
+
+// Add series
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/xy-chart/series/
+var valueSeries = mainPanel.series.push(am5xy.CandlestickSeries.new(root, {
+  name: "Loading...",
+  clustered: false,
+  valueXField: "Date",
+  valueYField: "Close",
+  highValueYField: "High",
+  lowValueYField: "Low",
+  openValueYField: "Open",
+  calculateAggregates: true,
+  xAxis: dateAxis,
+  yAxis: valueAxis,
+  legendValueText: "O: [bold]{openValueY.formatNumber('#.##a')}[/] H: [bold]{highValueY.formatNumber('#.##a')}[/] L: [bold]{lowValueY.formatNumber('#.##a')}[/] C: [bold]{valueY.formatNumber('#.##a')}[/]",
+  legendRangeValueText: ""
+}));
+
+
+// Set main value series
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/stock/#Setting_main_series
+stockChart.set("stockSeries", valueSeries);
+
+
+// Add a stock legend
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/stock/stock-legend/
+var valueLegend = mainPanel.plotContainer.children.push(am5stock.StockLegend.new(root, {
+  stockChart: stockChart
+}));
+
+
+// Create volume axis
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/xy-chart/axes/
+var volumeAxisRenderer = am5xy.AxisRendererY.new(root, {
+  inside: false
+});
+
+volumeAxisRenderer.labels.template.set("forceHidden", true);
+volumeAxisRenderer.grid.template.set("forceHidden", true);
+
+var volumeValueAxis = mainPanel.yAxes.push(am5xy.ValueAxis.new(root, {
+  height: am5.percent(20),
+  y: am5.percent(100),
+  centerY: am5.percent(100),
+  renderer: volumeAxisRenderer
+}));
+
+// Add series
+// https://www.amcharts.com/docs/v5/charts/xy-chart/series/
+var volumeSeries = mainPanel.series.push(am5xy.ColumnSeries.new(root, {
+  name: "Volume",
+  clustered: false,
+  valueXField: "Date",
+  valueYField: "Volume",
+  xAxis: dateAxis,
+  yAxis: volumeValueAxis,
+  legendValueText: "[bold]{valueY.formatNumber('#.##a')}[/]"
+}));
+
+volumeSeries.columns.template.setAll({
+  strokeOpacity: 0,
+  fillOpacity: 0.5
+});
+
+// color columns by stock rules
+volumeSeries.columns.template.adapters.add("fill", function(fill, target) {
+  var dataItem = target.dataItem;
+  if (dataItem) {
+    return stockChart.getVolumeColor(dataItem);
+  }
+  return fill;
+})
+
+
+// Set main series
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/stock/#Setting_main_series
+stockChart.set("volumeSeries", volumeSeries);
+valueLegend.data.setAll([valueSeries, volumeSeries]);
+
+
+// Add cursor(s)
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/xy-chart/cursor/
+mainPanel.set("cursor", am5xy.XYCursor.new(root, {
+  yAxis: valueAxis,
+  xAxis: dateAxis,
+  snapToSeries: [valueSeries],
+  snapToSeriesBy: "y!"
+}));
+
+
+// Add scrollbar
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/xy-chart/scrollbars/
+var scrollbar = mainPanel.set("scrollbarX", am5xy.XYChartScrollbar.new(root, {
+  orientation: "horizontal",
+  height: 50
+}));
+stockChart.toolsContainer.children.push(scrollbar);
+
+var sbDateAxis = scrollbar.chart.xAxes.push(am5xy.GaplessDateAxis.new(root, {
+  baseInterval: {
+    timeUnit: "minute",
+    count: 30
+  },
+  renderer: am5xy.AxisRendererX.new(root, {})
+}));
+
+var sbValueAxis = scrollbar.chart.yAxes.push(am5xy.ValueAxis.new(root, {
+  renderer: am5xy.AxisRendererY.new(root, {})
+}));
+
+var sbSeries = scrollbar.chart.series.push(am5xy.LineSeries.new(root, {
+  valueYField: "Close",
+  valueXField: "Date",
+  xAxis: sbDateAxis,
+  yAxis: sbValueAxis
+}));
+
+sbSeries.fills.template.setAll({
+  visible: true,
+  fillOpacity: 0.3
+});
+
+// add indicator
+stockChart.indicators.push(am5stock.RelativeStrengthIndex.new(root, { stockChart: stockChart, stockSeries: valueSeries }));
+
+// zoom to some period
+var periodSelector = am5stock.PeriodSelector.new(root, {
+  stockChart: stockChart,
+  zoomTo: "end",
+  periods: [
+    { timeUnit: "day", count: 3, name: "3D" },
+    { timeUnit: "day", count: 7, name: "7D" },
+    { timeUnit: "day", count: 14, name: "2W" },
+    { timeUnit: "max", count: 1, name: "Max" }
+  ]
+})
+
+// Stock toolbar
+// -------------------------------------------------------------------------------
+// https://www.amcharts.com/docs/v5/charts/stock/toolbar/
+var toolbar = am5stock.StockToolbar.new(root, {
+  container: document.getElementById("chartcontrols"),
+  stockChart: stockChart,
+  controls: [
+    am5stock.SettingsControl.new(root, {
+      stockChart: stockChart
+    }),
+    am5stock.IndicatorControl.new(root, {
+      stockChart: stockChart,
+      legend: valueLegend
+    }),
+    am5stock.ResetControl.new(root, {
+      stockChart: stockChart
+    }),
+    periodSelector
+  ]
+})
+
+let getChartData = (basketid, currencyid, quoteid) => {
+
+  valueSeries.set("name", "Loading...");
+  valueSeries.hover();
+
+  let request = $.ajax({
+    url: "/api/chart/market/"+basketid+"/"+currencyid+"/"+quoteid,
+    type: "GET",
+    success: function (rsp) {
+      // update name
+      valueSeries.set("name", currencynames[currencyid]+"/"+currencynames[quoteid]);
+   
+      // set data to all series
+      valueSeries.data.setAll(rsp);
+      volumeSeries.data.setAll(rsp);
+      sbSeries.data.setAll(rsp);
+      
+      // update legend
+      valueLegend.data.setAll([valueSeries, volumeSeries]);
+      
+    },
+    error: function (err) {
+      if (err.responseText) {
+        alert("Fatal Error: " + err.responseText);
+      } else {
+        alert("Fatal Error");
+      }
+    }
+  });
+};
+
+  $("#chart-btn-swap").on('click', function() {
+    let pairA = $("#pairA").val();
+    let pairB = $("#pairB").val();
+    $("#pairB").val(pairA).change();
+    $("#pairA").val(pairB).change();
+  });
+
+  $("#view_pair").submit(function(event) {
+    event.preventDefault();
+    
+    let pairA = $("#pairA").val();
+    let pairB = $("#pairB").val();
+
+    getChartData("{{currency.currencyid}}", pairA, pairB);
+  });
+
+  // initial chart data is Bridge.vETH priced in DAI.vETH
+  getChartData("{{currency.currencyid}}","{{currency.currencyid}}","iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM");
+
+}); // end am5.ready()
+
+</script>
+
+<!-- HTML -->
+<div id="chartcontrols"></div>
+<div id="chartdiv"></div>
+
+
+</div>

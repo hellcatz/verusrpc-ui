@@ -45,10 +45,10 @@
             <select name="currency0" id="currency0" class="form-select" aria-label="SelectCurrency">
               {% for g in vars.currencies %}
               {% if g[1].isGateway %}
-                <option value="{{g[0]}}">{{g[0]}}</option>
+                <option value="{{g[0]}}">{{ vars.currencynames[g[0]] }}</option>
                 {% for coin in vars.coins %}
                 {% if not vars.currencies[coin].isGatewayConverter and g[1].currencyid == vars.currencies[coin].parent %}
-                <option value="{{coin}}">{{coin}}</option>
+                <option value="{{coin}}">{{ vars.currencynames[coin] }}</option>
                 {% endif %}
                 {% endfor %}
               {% endif %}
@@ -58,7 +58,7 @@
             <select name="exportto0" id="exportto0" class="form-select" aria-label="SelectExportTo">
               {% for c in vars.currencies %}
               {% if c[1].isGateway %}
-              <option value="{{c[0]}}">{{c[0]}}</option>
+              <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
               {% endif %}
               {% endfor %}
             </select>
@@ -112,7 +112,9 @@
 {% include 'balances' %}
 
 <script type="text/javascript">
+var coin = "{{vars.coin}}";
 var total_tousers = 1;
+var currencynames = {{ vars.currencynames | json }};
 var balances = {{ balances | json }};
 
 function showConfirmError(rsp) {
@@ -150,7 +152,7 @@ function showConfirmModel(rsp) {
     } else {
       totalAmount[currency] = Number(amount);
     }
-    usersHtml += '<div class="row m-0 p-1"><code class="text-lg">' + amount + ' ' + currency + ' to<br />'+ toaddr + '<br />using gateway '+$('#exportto'+i).val()+'</code></div>';
+    usersHtml += '<div class="row m-0 p-1"><code class="text-lg">' + amount + ' ' + currencynames[currency] + ' to<br />'+ toaddr + '<br />using gateway '+currencynames[$('#exportto'+i).val()]+'</code></div>';
   }
   let html = usersHtml;
 
@@ -162,14 +164,14 @@ function showConfirmModel(rsp) {
       } else {
         totalAmount[c] = rsp.fees[c];
       }
-      html += '<span><code class="text-lg">' + rsp.fees[c].toFixed(8) + ' ' + c + '</code></span>';
+      html += '<span><code class="text-lg">' + rsp.fees[c].toFixed(8) + ' ' + currencynames[c] + '</code></span>';
     }
     html += "</div>";
   }
   if (Object.keys(totalAmount).length > 0) {
     html += '<div class="row m-0 p-1 pt-0">Total';
-    for (let t in totalAmount) {
-      html += '<span><code class="text-lg">' + totalAmount[t].toFixed(8) + ' ' + t + '</code></span>';
+    for (let c in totalAmount) {
+      html += '<span><code class="text-lg">' + totalAmount[c].toFixed(8) + ' ' + currencynames[c] + '</code></span>';
     }
     html += "</div>";
   }
@@ -263,10 +265,10 @@ function addToUserInput() {
             <select name="currency`+i+`" id="currency`+i+`" class="form-select" aria-label="SelectCurrency">
               {% for g in vars.currencies %}
               {% if g[1].isGateway %}
-                <option value="{{g[0]}}">{{g[0]}}</option>
+                <option value="{{g[0]}}">{{vars.currencynames[g[0]]}}</option>
                 {% for coin in vars.coins %}
-                {% if not vars.currencies[coin].isGatewayConverter and g[1].currencyid == vars.currencies[coin].parent %}
-                <option value="{{coin}}">{{coin}}</option>
+                {% if g[1].currencyid != vars.currencies[coin].currencyid and g[1].currencyid == vars.currencies[coin].parent %}
+                <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
                 {% endif %}
                 {% endfor %}
               {% endif %}
@@ -275,8 +277,8 @@ function addToUserInput() {
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Export To</span>
             <select name="exportto`+i+`" id="exportto`+i+`" class="form-select" aria-label="SelectExportTo">
               {% for c in vars.currencies %}
-              {% if c[1].isGateway %}
-              <option value="{{c[0]}}">{{c[0]}}</option>
+              {% if c[1].isGateway or c[1].isPBaaS %}
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
               {% endif %}
               {% endfor %}
             </select>

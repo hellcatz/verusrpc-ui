@@ -1,21 +1,27 @@
+const fs = require('fs');
+
 const https = require("node:https");
 
 const coinpaprikaids = require("./coinpaprika.json");
 
+const PLUGINS_DIR = "./plugins";
+var plugins = {}
+
 // scans verusd for balances, and things ...
 class VerusPROC {
-    constructor(rpc, verbose=0) {
+    constructor(rpc, api, verbose=0) {
         this.verus = rpc;
+        this.api = api;
+        this.verbose = verbose;
+                
         this.running = false;
         this.executing = false;
         this.interval = 5000;
         
-        this.templateCacheInterval = 60000;
+        this.templateCacheInterval = 120000; // 2 minute re-cache if no blocks
         this.lastTemplateCache = 0;
-        this.verbose = verbose;
         
-        this.lastBlockGetVolume = 0;
-        this.lastCoinPaprikaCoin = "";
+        this.lastBlock = 0;
     }
         
     async getHttpsResponse(url) {
@@ -57,18 +63,35 @@ class VerusPROC {
       let conversions = this.verus.get_conversions();
       for (let i in conversions) {
         let c = conversions[i];
+        
+        // BUG fix work-around
+        if (c.closedby && c.closedby.closed != c.uid) {
+          console.log("!!! BUG !!! Conversion Monitor BUG closedby uid mismatch", c.uid, c.closedby.closed);
+          // this was used to clean out a bad history file while testing the bug
+          //c.closedby = undefined;
+        }
+        
         // check to see if this conversion is the reverse of a previous conversion
         let matches = this.verus.get_conversion_by_details(c.convertto, c.currency, c.destination, c.amount, 0.5);
         if (matches.length > 0) {
           for (let i in matches) {
-            //if (c.started > matches[i].started) {
-              if (!c.closedby && !c.closed && matches[i].status === "success") {
-                c.closed = matches[i].uid;
-                matches[i].status="closed";
-                matches[i].closedby = c;
-                console.log("conversion position closed", matches[i].uid, "with", c.uid, c);
+            // built in sanity to prevent older txid closing newer
+            if (c.started > matches[i].started) {
+              // if the match hasn't been closed or we closed it
+              if (!matches[i].closedby || (matches[i].closedby && matches[i].closedby.uid == c.uid)) {
+                // if we haven't already closed a match or this match is the one we closed
+                if (!c.closed || (c.closed && c.closed == matches[i].uid)) {
+                  // keep object updated to track progress
+                  c.closed = matches[i].uid;
+                  matches[i].closedby = c;
+                  // only close if we haven't closed
+                  if (matches[i].status !== "closed") {
+                    matches[i].status="closed";
+                    console.log("conversion position closed", matches[i].uid, "with", c.uid, c);
+                  }
+                }
               }
-            //}
+            }
           }
         }
         // check conversions for progress
@@ -76,13 +99,9 @@ class VerusPROC {
           // do some estimates
           if (c.status == "success" || c.estimate) {
             // estimate converting back
-            if (!c.estimate_reverse) { c.estimate_reverse = {}; }
-            // estimate direct conversion
             let e = await this.verus.estimateConversion(c.received||c.estimate, c.convertto, c.currency, c.via, false);
             if (e) {
-              let via = " "; // via not used
-              if (c.via) { via = c.via; }
-              c.estimate_reverse[via] = e.estimatedcurrencyout;
+              c.estimate_reverse = e.estimatedcurrencyout;
             }
           }
           
@@ -115,9 +134,9 @@ class VerusPROC {
         for (let i in market) {
           let ticker = market[i];
           if (coinpaprikaids[ticker.id]) {
-            let currency = this.verus.currencies[this.verus.currencyids[coinpaprikaids[ticker.id]]];
+            let currency = this.verus.currencies[coinpaprikaids[ticker.id]];
             if (currency) {
-              this.verus.set_market_ticker(currency.fullyqualifiedname, ticker);
+              this.verus.set_market_ticker(currency.currencyid, ticker);
             }
           }
         }
@@ -129,45 +148,54 @@ class VerusPROC {
     async recacheTemplateVars() {
       let now = Date.now();
       
-      if (this.templateCacheInterval < (now - this.lastTemplateCache)) {
-        console.log("cache full update...");
-        // cache market stats
-        await this.cacheCoinPaprika();
+      let blockChanged = false;
+      let info = await this.verus.getInfo(false);
+      if (info) {
+        if (this.lastBlock !== info.blocks) {
+          this.lastBlock = info.blocks;
+          blockChanged = true;
+        }
+      }
+      
+      if (this.templateCacheInterval < (now - this.lastTemplateCache) || blockChanged === true) {
+        console.log("cache full update...", this.lastBlock);
+
+        // only perform some things at timed intervals
+        if (this.templateCacheInterval < (now - this.lastTemplateCache)) {
+          await this.cacheCoinPaprika();
+          await this.verus.cleanCache();
+        }
+
         // keep template variables cache up to date
         await this.verus.getTemplateVars(false);
-        this.lastTemplateCache = Date.now();        
-        
-      } else {        
+
+        this.lastTemplateCache = Date.now();
+
+      } else {
         // keep checking critical cache items like opid/txid monitoring
         await this.verus.getTemplateVars(undefined);
       }
 
+      // conversion monitoring
       await this.monitorConversions();
-      
-      /* TODO price/volume tracking
-      if (this.verus.info && this.lastBlockGetVolume != this.verus.info.blocks) {
-        if (this.lastBlockGetVolume === 0) { this.lastBlockGetVolume = this.verus.info.blocks; }
-        await this.verus.getVolume("Bridge.vETH", this.lastBlockGetVolume, this.verus.info.blocks);
-        this.lastBlockGetVolume = this.verus.info.blocks;
-      }
-      */
     }
-    
+
     async runOnce() {
       // start      
       let start = Date.now();
-      if (this.verbos > 0) {
+      if (this.verbose > 0) {
         console.log(start, "VerusPROC.runOnce start");
       }
+      
       this.executing = true;
-      // always clean the cache ...
-      await this.verus.cleanCache();
-      // monitor balances
       await this.recacheTemplateVars();
-      // done
+      for (let c in plugins) {
+        await plugins[c].runOnce();
+      }
       this.executing = false;
+      
       let end = Date.now();
-      if (this.verbos > 0) {
+      if (this.verbose > 0) {
         console.log(end, "VerusPROC.runOnce took", (end - start), "ms");
       }
     }
@@ -181,8 +209,27 @@ class VerusPROC {
       }
     }
     
+    async initPlugins() {
+      let ploader = {};
+      fs.readdirSync(PLUGINS_DIR).forEach(file => {
+        if (file.endsWith(".js")) {
+          let name = file.substring(0, file.indexOf('.'));
+          try {
+            ploader[name] = require(PLUGINS_DIR+"/"+file);
+          } catch (e) {
+            console.error("-------------------------------------\nFAILED to load plugin", file, "\n-------------------------------------\n", e, "\n\n-------------------------------------");
+          }
+        }
+      });
+      for (let c in ploader) {
+        let p = ploader[c];
+        plugins[c] = new p(this.verus, this.api, 1);
+        await plugins[c].init();
+      }
+    }
+    
     async start() {
-      this.running = true;
+      this.running = true;      
       setTimeout(this.run.bind(this), 1);
     }
 

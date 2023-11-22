@@ -1,12 +1,11 @@
-{% assign currency = vars.currencies[name] %}
+{% if not currency.isFailedLaunch %}
 <tr>
   <td>
-    <button type="button" class="btn btn-dark"><a href="/view/{{ currency.currencyid }}" class="link-underline link-underline-opacity-0">{{ name | truncate: 32  }}</a></button>
-    {% if currency.startblock > vars.info.blocks %}<span class="badge text-bg-info"> <i class="fa-solid fa-arrow-down-up-across-line"></i> PRELAUNCH</span>{% endif %}
+    <button type="button" class="btn btn-dark"><a href="/view/{{ currency.currencyid }}" class="link-underline link-underline-opacity-0">{{ currency.fullyqualifiedname | truncate: 32  }}</a></button>
   </td>
   <td class="w-100">
     {% if currency.isPBaaS %} 
-      {% if currency.name == vars.info.name %}
+      {% if currency.currencyid == vars.info.chainid %}
         <i class="fa-brands fa-fort-awesome"></i> Native
       {% else %}
         <i class="fa-solid fa-link"></i> PBaaS
@@ -23,8 +22,11 @@
       {% endif %}
     {% elsif currency.isToken %} <i class="fa-solid fa-coins"></i> Token
     {% endif %}
+    
+    {% if currency.isPrelaunch %}<span class="badge text-bg-info"> <i class="fa-solid fa-arrow-down-up-across-line"></i> PRELAUNCH</span>{% endif %}
   </td>
   <td>
   {% if currency.nativecurrencyid %}<code>{{currency.nativecurrencyid.address | json: 2}}</code>{% endif %}
   </td>
 </tr>
+{% endif %}

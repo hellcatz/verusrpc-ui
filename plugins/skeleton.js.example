@@ -1,0 +1,51 @@
+
+class VerusProcPluginSkeleton {
+    constructor(rpc, verbose=0) {
+        this.verus = rpc;
+        this.verbose = verbose;
+
+        this.executing = false;
+        this.interval = 5000;
+    }
+    
+    name() {
+      return "Skeleton";
+    }
+    version() {
+      return "0.0.1";
+    }
+    
+    log(...args) {
+      console.log(this.name(), ...args);
+    }
+    
+    async init() {
+      this.log(this.version(), "plugin initialized");
+    }
+
+    async runOnce() {
+      // start      
+      let start = Date.now();
+      if (this.verbos > 0) {
+        console.log("runOnce start");
+      }
+      
+      this.executing = true;
+      await this.doWork();
+      this.executing = false;
+      
+      let end = Date.now();
+      if (this.verbos > 0) {
+        this.log("runOnce took", (end - start), "ms");
+      }
+    }
+    
+    async doWork() {
+
+      let info = await this.verus.getInfo(false);
+      this.log(info);
+
+    }
+}
+
+module.exports = VerusProcPluginSkeleton;

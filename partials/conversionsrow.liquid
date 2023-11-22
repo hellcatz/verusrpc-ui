@@ -1,7 +1,22 @@
-<h2 class="accordion-header" id="transactions-heading{{id}}">
-<button class="accordion-button collapsed m-0" type="button" data-bs-toggle="collapse" data-bs-target="#transactions-collapse{{id}}" aria-expanded="false" aria-controls="transactions-collapse{{id}}">
+<h4 class="accordion-header m-0 p-0" id="conversions-heading{{id}}">
+<button class="accordion-button collapsed m-0" type="button" data-bs-toggle="collapse" data-bs-target="#conversions-collapse{{id}}" aria-expanded="false" aria-controls="conversions-collapse{{id}}">
   <span class="p-0">{{ c.uid | truncate: 9}}{{ c.uid | slice: -6, 6 }}</span>
   
+  {% assign mingainloss = 0.1 %} 
+  
+  {% assign cname = c.currency %}
+  {% assign ctname = c.convertto %}
+  {% assign vname = c.via %}
+  {% if vars.currencynames[cname] %}
+    {% assign cname = vars.currencynames[cname] %}
+  {% endif %}
+  {% if vars.currencynames[ctname] %}
+    {% assign ctname = vars.currencynames[ctname] %}
+  {% endif %}
+  {% if vars.currencynames[vname] %}
+    {% assign vname = vars.currencynames[vname] %}
+  {% endif %}
+
   {% if c.status != "success" and c.status != "closed" %}
   <span class="badge text-bg-warning rounded-pill p-2 px-3 ms-2">
     {{ c.status }}
@@ -9,7 +24,7 @@
   {% endif %}
   
   <span class="badge text-bg-secondary rounded-pill p-2 px-3 ms-2">
-  {{ c.amount | round: 6 }} {{c.currency}}
+  {{ c.amount | round: 6 }} {{ cname }}
   </span>
   
   {% if c.status != "closed" %}
@@ -23,45 +38,48 @@
   {% elsif c.estimate %}
   ~{{ c.estimate | round: 6 }}
   {% endif %}
-  {{c.convertto}}
+   {{ ctname }}
   </span>
   {% endif %}
 
+  {% assign gainloss = 0 %} 
   {% if c.status == "success" %}
-  {% for i in c.estimate_reverse %}
-  {% if not c.via or i[0] == c.via and i[1] > c.amount %}
-    {% assign gainloss = i[1] | minus: c.amount | divided_by: c.amount | times: 100 | round: 2 %}
-    {% if gainloss > 0.1 %}
-    <span class="badge text-bg-light rounded-pill p-2 px-3 ms-2"> CB {{ gainloss }}%</span>
-    {% endif %}
+  {% if c.estimate_reverse > c.amount %}
+  {% assign gainloss = c.estimate_reverse | minus: c.amount | divided_by: c.amount | times: 100 | round: 2 %}
+  {% assign diff = c.estimate_reverse | minus: c.amount | round: 6 %}
+  {% if gainloss > mingainloss %}
+  <span class="badge text-bg-light rounded-pill p-2 px-3 ms-2"><i class="fa-solid fa-arrow-right-arrow-left"></i> &nbsp; +{{ gainloss }}% &nbsp; {{diff}} {{cname}}</span>
   {% endif %}
-  {% endfor %}
   {% endif %}
+  {% endif %}
+  
   {% if c.status == "closed" and c.closedby.status != "pending" %}
   {% assign gainloss = c.closedby.received | minus: c.amount | divided_by: c.amount | times: 100 | round: 2 %}
-  <span class="badge text-bg-primary rounded-pill p-2 px-3 ms-2"> {{ c.closedby.received | round: 6 }} {{ c.currency }}</span>
+  <span class="badge text-bg-primary rounded-pill p-2 px-3 ms-2"> {{ c.closedby.received | round: 6 }} {{ cname }}</span>
   <span class="badge text-bg-{% if gainloss > 0 %}success{%else%}danger{%endif%} p-2 px-3 ms-2">
   {% if gainloss > 0 %}+{%endif%}{{ c.closedby.received | minus: c.amount | divided_by: c.amount | times: 100 | round: 2 }}%
-  {% if gainloss > 0 %}+{%endif%}{{ c.closedby.received | minus: c.amount | round : 6 }} {{c.currency}}
+  &nbsp; {% if gainloss > 0 %}+{%endif%}{{ c.closedby.received | minus: c.amount | round : 6 }} {{ cname }}
+  &nbsp; {% if gainloss < 0 %}<i class="fa-solid fa-face-frown"></i>{%else%}<i class="fa-solid fa-trophy"></i>{% endif %}
   </span>
   {% elsif c.status == "closed" %}
   {% assign gainloss = c.closedby.estimate | minus: c.amount | divided_by: c.amount | times: 100 | round: 2 %}
-  <span class="badge text-bg-secondary rounded-pill p-2 px-3 ms-2"> ~{{ c.closedby.estimate | round: 6 }} {{ c.currency }}</span>
+  <span class="badge text-bg-secondary rounded-pill p-2 px-3 ms-2"> ~{{ c.closedby.estimate | round: 6 }} {{ cname }}</span>
   <span class="badge text-bg-warning p-2 px-3 ms-2">
   {% if gainloss > 0 %}+{%endif%}{{ c.closedby.estimate | minus: c.amount | divided_by: c.amount | times: 100 | round: 2 }}%
-  {% if gainloss > 0 %}+{%endif%}{{ c.closedby.estimate | minus: c.amount | round : 6 }} {{c.currency}}
+  &nbsp; {% if gainloss > 0 %}+{%endif%}{{ c.closedby.estimate | minus: c.amount | round : 6 }} {{ cname }}
+  &nbsp; <i class="fa-solid fa-hourglass"></i>
   </span>
   {% endif %}
 </button>
-</h2>
-<div id="transactions-collapse{{id}}" class="accordion-collapse collapse m-0 p-0 mt-2" aria-labelledby="transactions-heading{{id}}" data-bs-parent="#accordionConversions">
+</h4>
+<div id="conversions-collapse{{id}}" class="accordion-collapse collapse m-0 p-0 mt-2" aria-labelledby="conversions-heading{{id}}" data-bs-parent="#accordionConversions">
   <div class="accordion-body m-0 p-0">
     <div class="mb-2">
-    {% if c.status == "success" and gainloss > 0.0 %}
-    <a class="btn btn-success convert-reverse position-relative top-0 start-0" href="/convert/reverse/{{c.uid}}">CONVERT BACK</a>
-    {% else %}
-    <a class="btn btn-danger convert-reverse position-relative top-0 start-0" href="/convert/reverse/{{c.uid}}">CONVERT BACK</a>
+    {% assign cb_btn_class = "danger" %}
+    {% if c.status == "success" and gainloss > 0.0 %}    
+    {% assign cb_btn_class = "success" %}
     {% endif %}
+    <a class="btn btn-{{cb_btn_class}} convert-reverse position-relative top-0 start-0" href="/convert/reverse/{{c.uid}}">CONVERT BACK</a>
     
     <a class="btn btn-secondary position-relative top-0 start-0" href="/api/transaction/{{c.txid}}" target="_blank">Input TXID</a>
     {% if c.spentTxId %}

@@ -10,7 +10,8 @@
         </tr>
       </thead>
       <tbody>
-      {% for name in vars.currencynames %}
+      {% for i in vars.currencies %}
+        {% assign currency = i[1] %}
         {% include 'currenciesrow', id:forloop.index %}
       {% endfor %}
       </tbody>

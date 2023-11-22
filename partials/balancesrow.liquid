@@ -1,6 +1,6 @@
 <h2 class="accordion-header" id="balances-heading{{id}}">
 <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#balances-collapse{{id}}" aria-expanded="false" aria-controls="balances-collapse{{id}}">
-    {{ totals[balance[0]] | round: 8 }} {{ balance[0] }}
+    {{ totals[balance[0]] | round: 8 }} {{ vars.currencynames[balance[0]] }}
 </button>
 </h2>
 <div id="balances-collapse{{id}}" class="accordion-collapse collapse" aria-labelledby="balances-heading{{id}}" data-bs-parent="#accordionBalances">

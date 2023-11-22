@@ -153,7 +153,7 @@ async function getCurrencies(req,res) {
 }
 
 async function getCurrency(req,res) {
-  let currency = await rpc.getCurrency(req.params.currency, true);
+  let currency = await rpc.getCurrency(req.params.currencyid, true);
   if (currency != undefined) {
     res.status(200).type('application/json').send(currency);
   } else {
@@ -216,7 +216,7 @@ async function renderHome(req,res) {
 
 async function renderViewCurrency(req,res) {
   const tvar = await rpc.getTemplateVars(true);
-  const currency = await rpc.getCurrency(req.params.currency, true);
+  const currency = await rpc.getCurrency(req.params.currencyid, true);
   if (tvar != undefined) {
     res.render('viewcurrency', {
         title: 'View Currency',
@@ -334,7 +334,7 @@ async function handleSendCurrency(req,res) {
       // ignore empty entries
       if (toAddress) {
         // subtract fee from first amount only
-        if (i == 0 && currency == rpc.getnativecoin()) {
+        if (i == 0 && (currency == rpc.nativecurrencyid || currency == rpc.nativename)) {
           if (amount && amount > 0 && fee && fee > 0 && (req.body.subtractfee === true || req.body.subtractfee === "true")) {
               amount = (amount - fee);
           }
@@ -430,7 +430,7 @@ router.use((req, res, next) => {
 router.get('/', (req, res) => {
     renderHome(req, res);
 })
-router.get('/view/:currency', (req, res) => {
+router.get('/view/:currencyid', (req, res) => {
     renderViewCurrency(req, res);
 })
 
@@ -483,7 +483,6 @@ router.get('/api/opid/result/:opid', (req, res) => {
 router.get('/api/opid/clear/:opid', (req, res) => {
     clearOperationResult(req, res);
 });
-
 router.get('/api/addresses', (req, res) => {
     getAddresses(req, res);
 });
@@ -499,7 +498,7 @@ router.get('/api/blockreward', (req, res) => {
 router.get('/api/currencies', (req, res) => {
     getCurrencies(req, res);
 });
-router.get('/api/currency/:currency', (req, res) => {
+router.get('/api/currency/:currencyid', (req, res) => {
     getCurrency(req, res);
 });
 router.get('/api/identity/:id', (req, res) => {
@@ -510,6 +509,10 @@ router.get('/api/info', (req, res) => {
 });
 router.get('/api/mininginfo', (req, res) => {
     getMiningInfo(req, res);
+});
+router.get('/api/monitor/txid/:txid', (req, res) => {
+    rpc.add_txid(req.params.txid);
+    res.status(200).type('application/json').send(true);
 });
 router.get('/api/tickers', (req, res) => {
     res.status(200).type('application/json').send(rpc.tickers);

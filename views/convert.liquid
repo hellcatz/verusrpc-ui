@@ -4,24 +4,18 @@
 <div class="card container-sm mb-2">
   <div class="card-body">  
   {% if reverse_convert %}
-  {% assign estimate_via = " " %}
-  {% assign estimate_reverse = 0 %}
-  {% for i in reverse_convert.estimate_reverse %}
-  {% if not reverse_convert.via or i[0] == reverse_convert.via and i[1] > estimate_reverse %}
-  {% assign estimate_via = i[0] %}
-  {% assign estimate_reverse = i[1] %}
-  {% endif %}
-  {% endfor %}
+  {% assign estimate_reverse = reverse_convert.estimate_reverse %}
+  {% assign estimate_via = reverse_convert.via %}
   {% assign gainloss = estimate_reverse | minus: reverse_convert.amount | divided_by: reverse_convert.amount | times: 100 | round: 2 %}
   <h5 class="card-title">Reverse Conversion</h5>
   <p> </p>
   <div class="alert alert-info">
     <span class="p-0">{{ reverse_convert.uid | truncate: 9}}{{ reverse_convert.uid | slice: -6, 6 }}</span>
-    <span class="badge text-bg-secondary rounded-pill p-2 px-3 ms-2">{{ reverse_convert.amount | round: 6 }} {{reverse_convert.currency}}</span>
-    <span class="badge text-bg-primary rounded-pill p-2 px-3 ms-2">{{ reverse_convert.received | round: 6 }} {{reverse_convert.convertto}}</span>
+    <span class="badge text-bg-secondary rounded-pill p-2 px-3 ms-2">{{ reverse_convert.amount | round: 6 }} {{vars.currencynames[reverse_convert.currency]}}</span>
+    <span class="badge text-bg-primary rounded-pill p-2 px-3 ms-2">{{ reverse_convert.received | round: 6 }} {{vars.currencynames[reverse_convert.convertto]}}</span>
     <span class="badge text-bg-{% if gainloss > 0 %}success{%else%}danger{%endif%} p-2 px-3 ms-2">
       {% if gainloss > 0 %}+{%endif%}{{ estimate_reverse| minus: reverse_convert.amount | divided_by: reverse_convert.amount | times: 100 | round: 2 }}%
-      {% if gainloss > 0 %}+{%endif%}{{ estimate_reverse | minus: reverse_convert.amount | round : 6 }} {{reverse_convert.currency}}
+      {% if gainloss > 0 %}+{%endif%}{{ estimate_reverse | minus: reverse_convert.amount | round : 6 }} {{vars.currencynames[reverse_convert.currency]}}
     </span>
   </div>
   {% else %}
@@ -68,13 +62,10 @@
             <span class="ms-2">
             <select name="currency0" id="currency0" class="form-select" aria-label="SelectCurrency">
               {% if reverse_convert %}
-              <option value="{{ reverse_convert.convertto }}" selected>{{ reverse_convert.convertto }}</option>
+              <option value="{{ reverse_convert.convertto }}" selected>{{ vars.currencynames[reverse_convert.convertto] }}</option>
               {% else %}
-              <option value="{{vars.coin}}" selected>{{vars.coin}}</option>
               {% for coin in vars.coins %}
-              {% if coin != vars.coin %}
-              <option value="{{coin}}">{{coin}}</option>
-              {% endif %}
+              <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
               {% endfor %}
               {% endif %}
             </select>
@@ -91,23 +82,23 @@
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Convert To</span>
             <select name="convertto0" id="convertto0" class="form-select" aria-label="SelectConvertTo">
               {% if reverse_convert %}
-              <option value="{{ reverse_convert.currency }}" selected>{{ reverse_convert.currency }}</option>
+              <option value="{{ reverse_convert.currency }}" selected>{{ vars.currencynames[reverse_convert.currency] }}</option>
               {% else %}
               <option value=""> </option>
               {% for c in vars.currencies %}
-              <option value="{{c[0]}}">{{c[0]}}</option>
+              <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
               {% endfor %}
               {% endif %}
             </select>
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Convert Via</span>
             <select name="via0" id="via0" class="form-select" aria-label="SelectCurrency">
-              {% if reverse_convert %}
-              <option value="{{ estimate_via }}">{{ estimate_via }}</option>
+              {% if reverse_convert and estimate_via %}
+              <option value="{{ estimate_via }}">{{ vars.currencynames[estimate_via] }}</option>
               {% endif %}
               <option value=""> </option>
               {% for c in vars.currencies %}
               {% if c[1].isFractional and c[1].currencies.length > 1 and c[1].startblock < vars.info.blocks and c[0] != estimate_via %}
-              <option value="{{c[0]}}">{{c[0]}}</option>
+              <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
               {% endif %}
               {% endfor %}
             </select>
@@ -161,7 +152,9 @@
 {% include 'balances' %}
 
 <script type="text/javascript">
+var coin = "{{vars.coin}}";
 var total_tousers = 1;
+var currencynames = {{ vars.currencynames | json }};
 var balances = {{ balances | json }};
 
 function showConfirmError(rsp) {
@@ -196,9 +189,9 @@ function showConfirmModel(rsp) {
       totalAmount[currency] = Number(amount);
     }
     if (rsp.estimates && rsp.estimates[i]) {
-      toaddr = "~" + rsp.estimates[i] + " " + $('#convertto'+i).val();
+      toaddr = "~" + rsp.estimates[i] + " " + currencynames[$('#convertto'+i).val()];
     }
-    usersHtml += '<div class="row m-0 p-1 pb-2"><code class="text-lg">' + amount + ' ' + currency + ' to '+ toaddr + '</code></div>';
+    usersHtml += '<div class="row m-0 p-1 pb-2"><code class="text-lg">' + amount + ' ' + currencynames[currency] + ' to '+ toaddr + '</code></div>';
   }
   let html = usersHtml;
   if (rsp.fees) {
@@ -209,14 +202,14 @@ function showConfirmModel(rsp) {
       } else {
         totalAmount[c] = rsp.fees[c];
       }
-      html += '<span><code class="text-lg">' + rsp.fees[c].toFixed(8) + ' ' + c + '</code></span>';
+      html += '<span><code class="text-lg">' + rsp.fees[c].toFixed(8) + ' ' + currencynames[c] + '</code></span>';
     }
     html += "</div>";
   }
   if (Object.keys(totalAmount).length > 0) {
     html += '<div class="row m-0 p-1 pt-0">Total';
-    for (let t in totalAmount) {
-      html += '<span><code class="text-lg">' + totalAmount[t].toFixed(8) + ' ' + t + '</code></span>';
+    for (let c in totalAmount) {
+      html += '<span><code class="text-lg">' + totalAmount[c].toFixed(8) + ' ' + currencynames[c] + '</code></span>';
     }
     html += "</div>";
   }
@@ -331,10 +324,10 @@ function addToUserInput() {
             <input name="amount`+i+`" id="amount`+i+`" type="number" class="form-control" aria-describedby="basic-addon1" step="0.00000001" min="0">
             <span class="ms-2">
             <select name="currency`+i+`" id="currency`+i+`" class="form-select" aria-label="SelectCurrency">
-              <option value="{{vars.coin}}" selected>{{vars.coin}}</option>
+              <option value="{{vars.coin}}" selected>{{vars.currencynames[vars.coin]}}</option>
               {% for coin in vars.coins %}
               {% if coin != vars.coin %}
-              <option value="{{coin}}">{{coin}}</option>
+              <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
               {% endif %}
               {% endfor %}
             </select>
@@ -347,7 +340,7 @@ function addToUserInput() {
             <select name="convertto`+i+`" id="convertto`+i+`" class="form-select" aria-label="SelectConvertTo">
               <option value=""> </option>
               {% for c in vars.currencies %}
-              <option value="{{c[0]}}">{{c[0]}}</option>
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
               {% endfor %}
             </select>
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Convert Via</span>
@@ -355,7 +348,7 @@ function addToUserInput() {
               <option value=""> </option>
               {% for c in vars.currencies %}
               {% if c[1].isFractional and c[1].currencies.length > 1 and c[1].startblock < vars.info.blocks %}
-              <option value="{{c[0]}}">{{c[0]}}</option>
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
               {% endif %}
               {% endfor %}
             </select>
