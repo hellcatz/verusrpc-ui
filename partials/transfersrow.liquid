@@ -1,0 +1,68 @@
+<tr>
+<td>
+<a href="/api/transaction/{{ transfer.txid }}" target="_blank"><small>{{ transfer.txid | truncate: 9}}{{ transfer.txid | slice: -6, 6 }}</small></a>
+</td>
+
+<td class="text-nowrap" style="width: 0.1"><small>{{ transfer.flags }}</small></td>
+
+<td>
+{% if not transfer.unconfirmed %}
+<time class="timeago badge rounded" datetime="{{ transfer.time }}">{{ transfer.time }}</time>
+{% else %}
+<span class="badge rounded text-bg-warning">pending</span>
+{% endif %}
+</td>
+<td>
+{% for c in transfer.currencyvalues %}
+{{ c[1] }}
+<small>{{ vars.currencynames[c[0]] }}</small>
+{% endfor %}
+</td>
+
+
+<td>
+{% if transfer.output %}
+
+
+{% for c in transfer.output.scriptPubKey.reserveoutput.currencyvalues %}
+{{ c[1] }}
+<small>{{ vars.currencynames[c[0]] }}</small>
+{% endfor %}
+{% for c in transfer.output.scriptPubKey.reservetransfer.currencyvalues %}
+{{ c[1] }}
+<small>{{ vars.currencynames[c[0]] }}</small>
+{% endfor %}
+{% if transfer.output.value > 0 %}
+{{ transfer.output.value }}
+<small>{{ vars.currencynames[transfer.destinationcurrencyid] }}</small>
+{% endif %}
+
+{% else %}
+<small>{{ vars.currencynames[transfer.destinationcurrencyid] }}</small>
+{% endif %}
+</td>
+
+<td>
+{% if address and address.size > 1 %}
+<a href="{{vars.explorers[vars.coin].address}}/{{transfer.destination.address}}" target="_blank">{{transfer.destination.address | truncate: 9}}{{transfer.destination.address | slice: -6, 6 }}</a>
+{% else %}
+<a href="/transfers/{{basketid}}/{{transfer.destination.address}}/100" target="_blank">{{transfer.destination.address | truncate: 9}}{{transfer.destination.address | slice: -6, 6 }}</a>
+{% endif %}
+</td>
+
+<td>
+<small>{{transfer.destination.type}}</small>
+</td>
+
+<td>
+<small>
+{% if not transfer.destination.fees %}
+{{transfer.fees}}
+{% else %}
+{{transfer.fees | plus: transfer.destination.fees }}
+{% endif %}
+{{vars.currencynames[transfer.feecurrencyid]}}
+</small>
+</td>
+</tr>
+<!--<tr><td colspan="7"><pre>{{ transfer | json: 2}}</pre></td></tr>-->

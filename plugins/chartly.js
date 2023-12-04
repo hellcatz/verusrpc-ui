@@ -1,6 +1,26 @@
 
+const TYPE_DEST_PK = 1;
+const TYPE_DEST_PKH = 2;
+const TYPE_DEST_SH = 3;
+const TYPE_DEST_ID = 4;
+const TYPE_DEST_FULLID = 5;
+const TYPE_DEST_REGISTERCURRENCY = 6;
+const TYPE_DEST_QUANTUM = 7;
+const TYPE_DEST_NESTEDTRANSFER = 8;
+const TYPE_DEST_ETH = 9;
+const TYPE_DEST_ETHNFT = 10;
+const TYPE_DEST_RAW = 11;
+const TYPE_FLAG_RESERVED1 = 16;
+const TYPE_FLAG_RESERVED2 = 32;
+const TYPE_FLAG_DEST_AUX = 64;
+const TYPE_FLAG_DEST_GATEWAY = 128;
+
+function hasFlag(integer, flag) {
+  return (flag & integer) == flag;
+}
+
 class VerusProcPluginChartly {
-    constructor(rpc, api, verbose=0) {
+    constructor(rpc, api, verbose=0) {      
         this.verus = rpc;
         this.api = api;
         this.verbose = verbose;
@@ -12,13 +32,17 @@ class VerusProcPluginChartly {
         
         this.lastTickerBlock = 0;
         this.lastBlock = 0;
+        
+        this.lastTickerPartial = false;
+        
+        this.verus.chartly = this;
     }
     
     name() {
       return "Chartly";
     }
     version() {
-      return "0.0.1";
+      return "0.0.2";
     }
 
     log(...args) {
@@ -29,32 +53,45 @@ class VerusProcPluginChartly {
       let basketid = req.params.basketid||"i3f7tSctFkiPpiedY8QR5Tep9p4qDVebDx";
       let currencyid = req.params.currencyid||"i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
       let quoteid = req.params.quoteid||"iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM";
-      let data = await this.getApexChart(basketid, currencyid, quoteid);
+      let data = await this.getMarketChart(basketid, currencyid, quoteid);
       res.status(200).type('application/json').send(data);
     }
 
-    async init() {
+    async renderTransfers(req,res) {
+      const tvar = await this.verus.getTemplateVars(true);
+      let address = undefined;
+      if (req.params.address && req.params.address.trim().length > 0) {
+        address = req.params.address;
+      }
+      let limit = 100;
+      if (req.params.limit) {
+        limit = req.params.limit;
+      }
+      const transfers = this.getLatestTransfers(req.params.basketid, address, limit);
+      if (tvar != undefined) {
+        res.render('viewtransfers', {
+            title: 'Transfers',
+            vars: tvar,
+            transfers: transfers,
+            basketid: req.params.basketid,
+            address: address,
+            limit: limit
+        })
+      } else {
+          res.status(500).type('application/json').send({error: 500});
+      }
+    }
 
-      this.api.get('/api/chart/latest/:basketid', async (req, res) => {
+    async init() {
+      // api into our cache
+      this.api.get('/api/latest/:basketid', async (req, res) => {
         if (this.markets[req.params.basketid]) {
           res.status(200).type('application/json').send(this.markets[req.params.basketid].slice(-10).reverse());
         } else {
           res.status(200).type('application/json').send([]);
         }
       });
-
-      this.api.get('/api/chart/latest/transfers/:basketid/:limit', async (req, res) => {
-        let limit = 10;
-        try { limit = parseInt(req.params.limit); }
-        catch { limit = 10; }
-        let transfers = this.getLatestTransfers(req.params.basketid, limit);
-        if (transfers) {
-          res.status(200).type('application/json').send(transfers);
-        } else {
-          res.status(200).type('application/json').send([]);
-        }
-      });
-      this.api.get('/api/chart/latest/transfers/:basketid', async (req, res) => {
+      this.api.get('/api/latest/transfers/:basketid', async (req, res) => {
         let transfers = this.getLatestTransfers(req.params.basketid);
         if (transfers) {
           res.status(200).type('application/json').send(transfers);
@@ -62,50 +99,83 @@ class VerusProcPluginChartly {
           res.status(200).type('application/json').send([]);
         }
       });
-
-      // setup api endpoint for chart data
-      this.api.get('/api/chart/market/:basketid', async (req, res) => {
-          this.renderMarketChart(req, res);
-      });
+      
+      // api for ohlc chart data
       this.api.get('/api/chart/market/:basketid/:currencyid', async (req, res) => {
           this.renderMarketChart(req, res);
       });
       this.api.get('/api/chart/market/:basketid/:currencyid/:quoteid', async (req, res) => {
           this.renderMarketChart(req, res);
       });
+      this.api.get('/api/chart/market/:basketid', async (req, res) => {
+          this.renderMarketChart(req, res);
+      });
+      
+      // render transfers pages
+      this.api.get('/transfers/:basketid/:address/:limit', async (req, res) => {
+        this.renderTransfers(req, res);
+      }); 
+      this.api.get('/transfers/:basketid/:address', async (req, res) => {
+        this.renderTransfers(req, res);
+      }); 
+      this.api.get('/transfers/:basketid', async (req, res) => {
+        this.renderTransfers(req, res);
+      });
+      
+      // render market page
+      this.api.get('/market/:basketid', async (req, res) => {
+        this.renderMarketPage(req, res);
+      });
       
       this.log(this.version(), "plugin initialized");
     }
     
-    getLatestTransfers(currencyid, limit=10) {
-        if (limit > 5000) { limit = 5000; }
-        if (this.markets[currencyid]) {
-          let transfers = [];
-          let latest = this.markets[currencyid].slice(-100).reverse();
-          for (let i in latest) {
-            let item = latest[i];
-            if (item.transfers && item.transfers.length > 0) {
-              for (let z in item.transfers) {
-                let transfer = item.transfers[z];
-                transfer.blocktime = item.blocktime;
-                transfer.blockstart = item.start;
-                transfer.blockend = item.end;
-                transfers.push(transfer);
-                if (transfers.length >= limit) {
-                  break;
-                }
-              }
-            }
-            if (transfers.length >= limit) {
-              break;
+    getLatestTransfers(currencyid, address=undefined, limit=10) {
+      if (!limit) { limit = 10; }
+      if (limit > 5000) { limit = 5000; }
+      if (this.markets[currencyid]) {
+        let transfers = [];
+        let last = this.markets[currencyid].slice(-1)[0];
+        if (last && last.pendingtransfers && last.pendingtransfers.length > 0) {
+          let xfers = last.pendingtransfers.slice(-1000).reverse();
+          for (let z in xfers) {
+            let tx = xfers[z];            
+            let transfer = tx.reservetransfer;
+            let destination = transfer.destination.address;
+            if (!address || destination === address) {
+              transfer.txid = tx.txid;
+              transfer.unconfirmed = true;
+              transfers.push(transfer);
             }
           }
-          return transfers;
         }
-        return undefined;
+        let latest = this.markets[currencyid].slice(-1000).reverse();
+        for (let i in latest) {
+          let item = latest[i];
+          if (item.transfers && item.transfers.length > 0) {
+            // *Note, there is a 500 transfer limit per tx
+            let xfers = item.transfers.slice(-1000).reverse();
+            for (let z in xfers) {
+              let transfer = xfers[z];
+              let destination = transfer.destination.address;
+              if (!address || destination === address) {
+                transfers.push(transfer);
+              }
+              if (transfers.length >= limit) {
+                break;
+              }
+            }
+          }
+          if (transfers.length >= limit) {
+            break;
+          }
+        }
+        return transfers;
+      }
+      return undefined;
     }
     
-    async getApexChart(basketid, currencyid, quoteid) {
+    async getMarketChart(basketid, currencyid, quoteid) {
         let lastTime = 0;
         let ohlc = [];
         for(let i in this.markets[basketid]) {
@@ -128,20 +198,117 @@ class VerusProcPluginChartly {
     }
 
     async runOnce() {
-      // start
-      let start = Date.now();
-      if (this.verbos > 0) {
-        console.log("runOnce start");
-      }
+      if (this.executing !== true)
+      {
+        this.executing = true;
+        
+        // start
+        let start = Date.now();
+        if (this.verbos > 0) {
+          this.log("runOnce start");
+        }
 
-      this.executing = true;
-      await this.doWork();
-      this.executing = false;
-
-      let end = Date.now();
-      if (this.verbos > 0) {
-        this.log("runOnce took", (end - start), "ms");
+        await this.doWork();
+        
+        let end = Date.now();
+        if (this.verbos > 0) {
+          this.log("runOnce took", (end - start), "ms");
+        }
+        
+        this.executing = false;
       }
+    }
+
+    async calculateSlippageData(basketid) {
+      if (this.verus.currencies[basketid]) {
+        let c = this.verus.currencies[basketid];
+        let slippage = {};
+        let si = 1;
+        
+        if (this.markets[basketid]) {
+          let imp = this.markets[basketid].slice(-1)[0].results.slice(-1)[0];
+          let cstate = imp.importnotarization.currencystate;
+          if (cstate && cstate.reservecurrencies) {
+            while (si < 10) {              
+               for (let i in cstate.reservecurrencies) {
+                let base = cstate.reservecurrencies[i];
+                let from = base.currencyid;
+                for (let z in cstate.reservecurrencies) {
+                  let quote = cstate.reservecurrencies[z];
+                  let to = quote.currencyid;
+                  let price = this.verus.getReserveCurrencyPrice(imp, quote.currencyid, base.currencyid)
+                  let amount = price * si;
+                  let estimate = await this.verus.estimateConversion(amount, from, to, basketid, false);
+                  if (estimate) {
+                    if (!slippage[from]) { slippage[from] = {} }
+                    slippage[from][to] = (si - estimate.estimatedcurrencyout);
+                    console.log(si, amount, this.verus.currencynames[from], estimate.estimatedcurrencyout, this.verus.currencynames[to]);
+                  }
+                }
+              }
+              //console.log(si, slippage);
+              si += 1;
+            }
+          }
+        }
+      }
+    }
+    
+    async calculateMarketDataFromCurrencyState(basketid, startBlock, endBlock, step=1, update_last_ohlc=false) {
+
+      // extract martket data from import notarizations for most accurate
+      let v = await this.verus.getCurrencyState(basketid, startBlock, endBlock);
+      if (v && Array.isArray(v)) {
+        //console.log(v);
+        for (let i in v) {
+          let c = v[i];
+          //c.height;
+          //c.blocktime;
+          
+        }
+      }     
+    }
+
+    findReserveOutput(transfer, vout, index=0) {
+      let last = undefined;
+      let n = 0;
+      let destinationcurrencyid = transfer.destinationcurrencyid;
+      let destination = transfer.destination.address;
+      for (let i in vout) {
+        let o = vout[i];
+        if (o.scriptPubKey.reserveoutput) {
+          if ( o.scriptPubKey.reserveoutput.currencyvalues[destinationcurrencyid] &&
+               o.scriptPubKey.addresses.indexOf(destination) > -1
+             ) {
+              if (index === n) {
+                return o;
+              }
+          }
+          n++;
+        }
+        else if (o.scriptPubKey.reservetransfer && o.scriptPubKey.reservetransfer.crosssystem === true) {
+          if (o.scriptPubKey.reservetransfer.destinationcurrencyid === destinationcurrencyid &&
+              o.scriptPubKey.reservetransfer.destination.address === destination
+             ) {
+               if (index === n) {
+                  return o;
+               }
+          }
+          n++;
+        }
+        else if (o.valueSat > 0) {
+          if (o.scriptPubKey.addresses.indexOf(destination) > -1 &&
+                 destinationcurrencyid === this.verus.nativecurrencyid
+                ) {
+                  if (index === n) {
+                    return o;
+                  }
+          }
+          n++;
+        }
+      }
+      //console.log("output not found for", transfer);
+      return last;
     }
 
     async calculateMarketData(basketid, startBlock, endBlock, step=1, update_last_ohlc=false) {
@@ -150,22 +317,15 @@ class VerusProcPluginChartly {
       let totals = { ohlc: {}, volume: {} };
       let a = [];
       let b = [];
-
-      // verus only outputs up to 20 results
-      const maxreturn = 20;
-      let range = (endBlock - startBlock);
-      if (range > 20) {
-        step = Math.round(range / maxreturn );
-      }
       
-      // get total volumes from the imports
+      // extract martket data from import notarizations
       let v = await this.verus.getImports(basketid, startBlock, endBlock);
       if (v && Array.isArray(v)) {
         
         ret = {};
 
         // get the block time
-        let block = await this.verus.request("getblock", [endBlock.toFixed()], true);
+        let block = await this.verus.request("getblock", [startBlock.toFixed()], true);
         if (block && !block.error) {
           let time = ((block.result.time||(Date.now()/1000)));
           if (time && time > 0) {
@@ -175,17 +335,53 @@ class VerusProcPluginChartly {
 
         ret.start = startBlock;
         ret.end = endBlock;
-                
+
         if (!totals.ohlc[basketid]) { totals.ohlc[basketid] = {}; }
         if (!this.last_ohcl[basketid]) { this.last_ohcl[basketid] = {}; }
         
         for (let i in v) {
           let state = v[i];
+        
+          let block = await this.verus.request("getblock", [state.importheight.toFixed()], true);
+          if (block && !block.error) {
+            let time = ((block.result.time||(Date.now()/1000)));
+            if (time && time > 0) {
+              state.blocktime = time;
+            }
+          }
+          
           let currencystate = state.importnotarization.currencystate;
+          
+          // get transaction for amounts received
+          let tx = await this.verus.getRawTransaction(state.importtxid, true, false);
 
           // keep transfer history
           if (state.transfers && state.transfers.length > 0) {
             for (let i in state.transfers) {
+              // only show reserve transfers
+              state.transfers[i].txid = state.importtxid;
+              state.transfers[i].time = new Date(state.blocktime*1000).toISOString();
+              
+              // find the reserveoutput for this transfer
+              let output = this.findReserveOutput(state.transfers[i], tx.vout, parseInt(i));
+              if (output) {
+                // remove extra data
+                if (output.scriptPubKey) {
+                  output.scriptPubKey.hex = undefined;
+                  output.scriptPubKey.asm = undefined;
+                }
+                state.transfers[i].output = output;
+              }
+              
+              // TODO, decode flags and type for more detailed info about the transaction conversion,export,etc.
+              if (hasFlag(state.transfers[i].destination.type, TYPE_DEST_ETH)) {
+                state.transfers[i].destination.exportETH = true;
+              } else if (hasFlag(state.transfers[i].destination.type, TYPE_DEST_ETHNFT)) {
+                state.transfers[i].destination.exportETH = true;
+              } else if  (hasFlag(state.transfers[i].destination.type, TYPE_FLAG_DEST_GATEWAY)) {
+                console.log("FLAG_DEST_GATEWAY", state.transfers[i].destination);
+              }
+              
               b.push(state.transfers[i]);
             }
           }
@@ -277,6 +473,10 @@ class VerusProcPluginChartly {
           // get volumes priced in each reserve
           for (let currencyid in currencystate.currencies) {
             let c = currencystate.currencies[currencyid];
+            
+            if (!totals.volume[basketid]) { totals.volume[basketid] = 0; }
+            totals.volume[basketid] += (c.reservein * (1 / c.lastconversionprice));
+                        
             if (!totals.volume[currencyid]) { totals.volume[currencyid] = 0; }
             for (let baseid in currencystate.currencies) {
               let cc = currencystate.currencies[baseid];
@@ -298,89 +498,117 @@ class VerusProcPluginChartly {
 
       return ret;
     }
+    
+    async gatherPendingTransfers(basketid, last) {
+      let p = await this.verus.getPendingTransfers(basketid);
+      if (p && Array.isArray(p)) {
+        last.pendingtransfers = p;
+      }
+    }
 
     async doWork() {
       // if we have blocks, calculate market data
-      if (this.verus.info && this.verus.info.blocks && this.lastBlock != this.verus.info.blocks) {
-        this.lastBlock = this.verus.info.blocks;
+      if (this.verus.info && this.verus.info.blocks) {
 
         // TODO, scan from list
-        //  currently hardcoded to only scan Bridge.vETH
-
-        const blocktime = 60;
-        const blocksday = 1440;
-        const scan_history_days = 60;
-        const ticker_blocks = 60;
+        //  currently hardcoded to only scan Bridge.vETH        
         const basketid = "i3f7tSctFkiPpiedY8QR5Tep9p4qDVebDx";
         
-        // if we have cached the currency definition
-        if (this.verus.currencies[basketid] && this.verus.currencies[basketid].startblock && this.verus.currencies[basketid].startblock < this.verus.info.blocks) {
-          
-          // gather from start block if needed
-          if (!this.markets[basketid]) {
-            this.markets[basketid] = [];
+        // if new block ...
+        if (this.lastBlock != this.verus.info.blocks) {
+          this.lastBlock = this.verus.info.blocks;
 
-            this.lastTickerBlock = this.verus.currencies[basketid].startblock;
-            if ((this.verus.info.blocks - this.lastTickerBlock) > 43200) {
-              this.lastTickerBlock = (this.verus.info.blocks - 43200);
-            }
-            let gatherStart = Date.now();
-            console.log("gathering market data for", basketid, "block", this.lastTickerBlock, "to", this.verus.info.blocks);
-            while ((this.lastTickerBlock + ticker_blocks) < this.verus.info.blocks) {
-              let p = await this.calculateMarketData(basketid, this.lastTickerBlock-ticker_blocks, this.lastTickerBlock, 1, true);
-              if (p && p.blocktime && p.totals) {
-                this.markets[basketid].push(p);
+          const maxhistory = 43200;
+          const blocktime = 60;
+          const blocksday = 1440;
+          const ticker_blocks = 20;
+
+          // if we have cached the currency definition
+          if (this.verus.currencies[basketid] && this.verus.currencies[basketid].startblock && this.verus.currencies[basketid].startblock < this.verus.info.blocks) {
+            
+            // gather from start block if needed
+            if (!this.markets[basketid]) {
+              this.markets[basketid] = [];
+
+              let start = this.verus.currencies[basketid].startblock;
+              let end = this.verus.info.blocks;
+              if ((end - start) > maxhistory) {
+                start = (end - maxhistory);
               }
-              this.lastTickerBlock += ticker_blocks;
-            }
-            console.log("gathering took", Date.now() - gatherStart, "ms");
-          }
-
-          // gather "full" ticker stats if possible
-          if ((this.verus.info.blocks - this.lastTickerBlock) >= ticker_blocks) {
-            // remove partial ticker
-            let last = this.markets[basketid].at(-1);
-            if (last.start == this.lastTickerBlock) {
-              console.log("removed partial ticker");
-              this.markets[basketid].pop();
-            }
-            // get full ticker
-            this.lastTickerBlock += ticker_blocks;
-            console.log("calculating market data for", basketid, "block", this.lastTickerBlock, "to", this.verus.info.blocks);
-            let p = await this.calculateMarketData(basketid, this.lastTickerBlock-ticker_blocks, this.lastTickerBlock, 1, true);
-            if (p && p.blocktime && p.start && p.end && p.totals) {
-              this.markets[basketid].push(p);
+              
+              let gatherStart = Date.now();
+              console.log("gathering market data for", basketid, "block", start, "to", this.verus.info.blocks);
+              // gather full tickers
+              while ((start + ticker_blocks) < end) {
+                let p = await this.calculateMarketData(basketid, start, (start+ticker_blocks), 1, true);
+                if (p && p.blocktime && p.start && p.end) {
+                  this.markets[basketid].push(p);
+                }
+                start += (ticker_blocks + 1);
+              }
+              // last full ticker end position
+              this.lastTickerBlock = start;
+              console.log("gathering took", Date.now() - gatherStart, "ms, ended at block", this.lastTickerBlock);
             }
 
-          }
-
-          // gather "partial" ticker stats
-          if (this.lastTickerBlock < this.verus.info.blocks) {
-            let start = this.lastTickerBlock;
-            let end = this.verus.info.blocks;
-            let p = await this.calculateMarketData(basketid, start, end, 1);
-            if (p && p.blocktime && p.start && p.end) {
-              // keep updating the last one
+            // gather ticker stats on-the-fly
+            if (this.lastTickerBlock < this.verus.info.blocks) {
+              let start = this.lastTickerBlock;
+              let end = this.verus.info.blocks;
               let last = this.markets[basketid].at(-1);
-              if (last.start == start) {
-                console.log("update partial ticker", basketid, start, end);
-                this.markets[basketid].pop();
-                this.markets[basketid].push(p);
+              let newTicker = ((end - start) >= ticker_blocks);
+              
+              //let tmp = await this.calculateMarketDataFromCurrencyState(basketid, start, end, 1, newTicker);
+              
+              let p = await this.calculateMarketData(basketid, start, end, 1, newTicker);
+              if (p && p.blocktime && p.start && p.end) {
+                // if this is the end of currenct ticker
+                if (newTicker) {
+                  this.lastTickerBlock = end + 1;
+                  if (this.lastTickerPartial === true) {
+                    this.markets[basketid].pop();   // remove previous partial
+                  }
+                  this.markets[basketid].push(p);
+                  console.log("ticker complete", basketid, start, end);
+                  
+                } else if (last.start == start) {
+                  // existing partial
+                  await this.gatherPendingTransfers(basketid, p);
+                  this.markets[basketid].pop();   // remove previous partial
+                  this.markets[basketid].push(p); // push updated partial
+                  this.lastTickerPartial = true;
+                  console.log("updated partial ticker", basketid, start, end, "ticker blocks remaining", ticker_blocks - (end-start));
+
+                } else {
+                  // new partial ticker
+                  this.markets[basketid].push(p);
+                  this.lastTickerPartial = true;
+                  console.log("new partial ticker", basketid, start, end, "ticker blocks remaining", ticker_blocks - (end-start));
+                }
+
               } else {
-                console.log("add partial ticker", basketid, start, end);
-                this.markets[basketid].push(p);
+                if (newTicker) {
+                  this.lastTickerBlock = end + 1;
+                  console.log("ticker complete with no transfers", basketid, start, end);
+                }
               }
             }
+
+            // only keep 4 weeks of history
+            let oldestblocktime = (Date.now()/1000) - 2.628e+6;
+            while (this.markets[basketid][0].blocktime < oldestblocktime) {
+              this.markets[basketid].shift();
+            }
+            
+            //let slippage_data = await this.calculateSlippageData(basketid);
+            
           }
 
-          // only keep 4 weeks of history
-          let oldestblocktime = (Date.now()/1000) - 2.628e+6;
-          while (this.markets[basketid][0].blocktime < oldestblocktime) {
-            this.markets[basketid].shift();
-          }
-
+        } else {
+          // no new blocks check pendingtransfers
+          let last = this.markets[basketid].at(-1);
+          await this.gatherPendingTransfers(basketid, last);
         }
-
       }
     }
 

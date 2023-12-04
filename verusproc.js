@@ -22,6 +22,8 @@ class VerusPROC {
         this.lastTemplateCache = 0;
         
         this.lastBlock = 0;
+        
+        this.updatingBalances = false;
     }
         
     async getHttpsResponse(url) {
@@ -70,7 +72,7 @@ class VerusPROC {
           // this was used to clean out a bad history file while testing the bug
           //c.closedby = undefined;
         }
-        
+
         // check to see if this conversion is the reverse of a previous conversion
         let matches = this.verus.get_conversion_by_details(c.convertto, c.currency, c.destination, c.amount, 0.5);
         if (matches.length > 0) {
@@ -94,6 +96,7 @@ class VerusPROC {
             }
           }
         }
+
         // check conversions for progress
         if (c.status !== "closed") {
           // do some estimates
@@ -104,26 +107,28 @@ class VerusPROC {
               c.estimate_reverse = e.estimatedcurrencyout;
             }
           }
-          
+
           // check spentTxId's for progress
-          if (c.spentTxId2) {
-            let tx = await this.verus.getRawTransaction(c.spentTxId2, false, false);
-            if (!tx || tx.error) {
-              console.log("failed to get spentTxId2 for conversion! falling back ...");
-            } else {
-              continue;
+          if (!c.received || c.received <= 0) {
+            if (c.spentTxId2) {
+              let tx = await this.verus.getRawTransaction(c.spentTxId2, false, false);
+              if (!tx || tx.error) {
+                console.log("failed to get spentTxId2 for conversion! falling back ...");
+              } else {
+                continue;
+              }
             }
-          }
-          if (c.spentTxId) {
-            let tx = await this.verus.getRawTransaction(c.spentTxId, false, false);
-            if (!tx || tx.error) {
-              console.log("failed to get spentTxId for conversion! falling back ...");
-            } else {
-              continue;
+            if (c.spentTxId) {
+              let tx = await this.verus.getRawTransaction(c.spentTxId, false, false);
+              if (!tx || tx.error) {
+                console.log("failed to get spentTxId for conversion! falling back ...");
+              } else {
+                continue;
+              }
             }
+            console.log("checking conversion txid for progress", c.txid);
+            await this.verus.getRawTransaction(c.txid, false, false);
           }
-          console.log("checking conversion txid for progress", c.txid);
-          await this.verus.getRawTransaction(c.txid, false, false);
         }
       }
     }
@@ -141,63 +146,123 @@ class VerusPROC {
           }
         }
       } else {
-        console.log("failed to get market data from coinpaprika for", name);
+        console.log("failed to get market data from coinpaprika");
       }
     }
     
-    async recacheTemplateVars() {
+    async updateBalances() {
+      if (!this.updatingBalances) {
+        this.updatingBalances = true;
+        
+        let start = Date.now();
+        this.verus.balances = await this.verus.getBalances(0, false);
+        console.log("Scan balances took", (Date.now()-start), "ms");
+
+        this.updatingBalances = false;
+      }
+    }
+
+    async updateRpcCache(level=0) {
+      // level 0 = do not use cache
+      // level 1 = use some cache
+      // level 2 = use more cache
+      
+      // get chain info
+      this.verus.mininginfo = await this.verus.getMiningInfo(level > 1);
+      
+      // cache nextblockreward
+      this.verus.nextblockreward = await this.verus.getNextBlockReward(level > 2);
+      
+      //this.verus.generated = await this.verus.getUnspentBlockRewards();
+      //console.log(this.verus.generated);
+
+      // always update operation ids and monitor transactions
+      await this.verus.listOperationIDs(level > 2);
+      await this.verus.monitorTransactionIDs(level > 2);
+    }
+    
+    async runProc(blockChanged) {
       let now = Date.now();
       
-      let blockChanged = false;
-      let info = await this.verus.getInfo(false);
-      if (info) {
-        if (this.lastBlock !== info.blocks) {
-          this.lastBlock = info.blocks;
-          blockChanged = true;
-        }
-      }
-      
       if (this.templateCacheInterval < (now - this.lastTemplateCache) || blockChanged === true) {
-        console.log("cache full update...", this.lastBlock);
-
+        let level = (blockChanged===true?0:1);
+        if (blockChanged) {
+          console.log("new block cache update...", this.lastBlock);
+        } else {
+          console.log("cache timeout update...", this.lastBlock);
+        }
+        
         // only perform some things at timed intervals
         if (this.templateCacheInterval < (now - this.lastTemplateCache)) {
+          // cache from coinpaprika
           await this.cacheCoinPaprika();
-          await this.verus.cleanCache();
+
+          // removes items older than RPC_CACHE_TIMEOUT
+          this.verus.cleanCache();
+
+          this.lastTemplateCache = Date.now();
         }
 
-        // keep template variables cache up to date
-        await this.verus.getTemplateVars(false);
-
-        this.lastTemplateCache = Date.now();
+        // update rpc caches at level
+        await this.updateRpcCache(level);
 
       } else {
-        // keep checking critical cache items like opid/txid monitoring
-        await this.verus.getTemplateVars(undefined);
-      }
 
-      // conversion monitoring
+        // keep checking critical cache items like opid/txid monitoring
+        await this.updateRpcCache(2);
+
+      }
+      
+      // conversion monitor
       await this.monitorConversions();
+    }
+    
+    async doWork() {
+      if (this.executing !== true) {
+        this.executing = true;
+
+        // start
+        let start = Date.now();
+        if (this.verbose > 0) {
+          console.log(start, "VerusPROC.runOnce start");
+        }
+
+        // always cache latest getinfo from daemon
+        let blockChanged = false;
+        let info = await this.verus.getInfo(false);
+        if (info) {
+          if (this.lastBlock !== info.blocks) {
+            this.lastBlock = info.blocks;
+            blockChanged = true;
+          }
+        }
+
+        // run main processor
+        await this.runProc(blockChanged);
+        
+        // run plugin processors
+        for (let c in plugins) {
+          await plugins[c].runOnce();
+        }
+        
+        // only update balances if the block has changed
+        if (blockChanged) {
+          this.updateBalances();
+        }
+
+        let end = Date.now();
+        if (this.verbose > 0) {
+          console.log(end, "VerusPROC.runOnce took", (end - start), "ms");
+        }
+
+        this.executing = false;
+      }
     }
 
     async runOnce() {
-      // start      
-      let start = Date.now();
-      if (this.verbose > 0) {
-        console.log(start, "VerusPROC.runOnce start");
-      }
-      
-      this.executing = true;
-      await this.recacheTemplateVars();
-      for (let c in plugins) {
-        await plugins[c].runOnce();
-      }
-      this.executing = false;
-      
-      let end = Date.now();
-      if (this.verbose > 0) {
-        console.log(end, "VerusPROC.runOnce took", (end - start), "ms");
-      }
+      //* Note, we do not await here so we don't block web page render
+      //  doWork checks the executing flag to know if we are still doing work before starting the next work request ...
+      await this.doWork();
     }
     
     async run() {

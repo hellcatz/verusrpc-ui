@@ -29,6 +29,9 @@ app.engine('liquid', engine.express()) // register liquid engine
 app.set('views', ['./partials', './views']) // specify the views directory
 app.set('view engine', 'liquid') // set to default
 
+// timeago jquery plugin
+app.use('/js', express.static(path.join(__dirname, 'libs')))
+
 // bootstrap
 app.use('/css', express.static(path.join(__dirname, 'node_modules/bootstrap/dist/css')))
 

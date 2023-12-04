@@ -13,6 +13,7 @@
   <link rel="shortcut icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADeklEQVR4Aa1XA5DlQBBNXZ1t276sziqdbTPJ2bZt27Ztm8n8tW17N30zx9mt/J/5uX1VHXb6DVrhWNFg3PciNoIyzEZUjmF5jyUIS8RPEZRAfH5nKypHeBENbjLJtSCXVWg42lSfl9AJTJCEBdgEJfCSfLjhqG+1jBMP/ZYPG9uBjaURowYlFcumtiM8c1tFzo91rGwryTIzkb58tZNQRSZyO+l7A/yBLxbIYvG0FeQ6OuSmMjS5raTA+jOBEBieAg8+RkOTcUiXyGEsguP3w8AvJJmcUxzGoETKNzxsRn4uoUnebNrrPMS7/5KLinr1ZQTQOPck3CK53RgEjz5FAw3ZMyHNTlLi/ujwovKi+iTXXFxm4BebaWO7rwZDZqgqwMh1HmYHcO5xOGjh9MPw8Ay6krKIo0HChXjsH4W2Ux3VlFQVtODmnwSNNbZiw7lAMIfUNBVaTTbFUfrRGbYC780h2tjsfT5gCRsxGa0/fqsXpKtgETP2+GQIZ1sRbeUISNbCD+Lpl/MP+IIlRMamQctJpp+67Wc5Q0RMKtBg3Lpo4nccL6FBmZezx0IX0MP+myFgj53ui2s86OH8U3POi7qR5T+o9VLxTABLiE9Kh0vPI0APHgFJ0GyCSXMAvPR9C0eHHi1z9/vC/yI5RYUBy93Mh66gPCQDCNV6SZaXJJP/wbJj/npFy4MMIMWcAjFgFNdeRuqnZ0kJIwNItpTZvIKsXwXiPyxpm6y+9hZQsuK4dasQE58G3Ra46JNTW/Ber7gEhKUAC0i8T9vlzUJOOaGgHNBTXHGCbRWO3AllJKfC0FaU+7GUWO9gy77w3imO+IxVA7AXTJ04O+ljXnwTq6c8c4/5+uAXmkwKmDXkZPnD6vVFOTkCc9mQFtKcOHonala6EWs9DHRI8vZ/5Vj4VoWl6x2/xQsyY92ZAAPkuEEZ5VSWo8ELaCXLx+8c4+AP7ryLMkIOvIjmafSDH3PgZXmj93F3HOPJqerP7WgyHhkgV25wSyGbmaZUrkb+ePSM7LkWDD0XuVpPLinu9UajoixtuTe7YXZybLs2xwIySrwdD7JwAFdrjXIqwFkDEqO2krwAh2iUcWKUgM8L2y59kp0zCjvJufjvlj3SCvJwLJsajf1ajssqkB9Mu9FyZ2KYFBG8Rb7EYX+KIPuQLeNFeYPtaKcOPzMcI34AhZ9OZAOnRAoAAAAASUVORK5CYII=" />
   
   <script src="/js/jquery.min.js"></script>
+  <script src="/js/jquery.timeago.js"></script>
   <script src="/js/popper.min.js"></script>
   <script src="/js/bootstrap.min.js"></script>
     
@@ -35,7 +36,13 @@
 
 <nav class="navbar navbar-expand-md bg-body-tertiary" data-bs-theme="dark">
   <div class="container-fluid">
-    <a class="navbar-brand" href="/"><img alt="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADeklEQVR4Aa1XA5DlQBBNXZ1t276sziqdbTPJ2bZt27Ztm8n8tW17N30zx9mt/J/5uX1VHXb6DVrhWNFg3PciNoIyzEZUjmF5jyUIS8RPEZRAfH5nKypHeBENbjLJtSCXVWg42lSfl9AJTJCEBdgEJfCSfLjhqG+1jBMP/ZYPG9uBjaURowYlFcumtiM8c1tFzo91rGwryTIzkb58tZNQRSZyO+l7A/yBLxbIYvG0FeQ6OuSmMjS5raTA+jOBEBieAg8+RkOTcUiXyGEsguP3w8AvJJmcUxzGoETKNzxsRn4uoUnebNrrPMS7/5KLinr1ZQTQOPck3CK53RgEjz5FAw3ZMyHNTlLi/ujwovKi+iTXXFxm4BebaWO7rwZDZqgqwMh1HmYHcO5xOGjh9MPw8Ay6krKIo0HChXjsH4W2Ux3VlFQVtODmnwSNNbZiw7lAMIfUNBVaTTbFUfrRGbYC780h2tjsfT5gCRsxGa0/fqsXpKtgETP2+GQIZ1sRbeUISNbCD+Lpl/MP+IIlRMamQctJpp+67Wc5Q0RMKtBg3Lpo4nccL6FBmZezx0IX0MP+myFgj53ui2s86OH8U3POi7qR5T+o9VLxTABLiE9Kh0vPI0APHgFJ0GyCSXMAvPR9C0eHHi1z9/vC/yI5RYUBy93Mh66gPCQDCNV6SZaXJJP/wbJj/npFy4MMIMWcAjFgFNdeRuqnZ0kJIwNItpTZvIKsXwXiPyxpm6y+9hZQsuK4dasQE58G3Ra46JNTW/Ber7gEhKUAC0i8T9vlzUJOOaGgHNBTXHGCbRWO3AllJKfC0FaU+7GUWO9gy77w3imO+IxVA7AXTJ04O+ljXnwTq6c8c4/5+uAXmkwKmDXkZPnD6vVFOTkCc9mQFtKcOHonala6EWs9DHRI8vZ/5Vj4VoWl6x2/xQsyY92ZAAPkuEEZ5VSWo8ELaCXLx+8c4+AP7ryLMkIOvIjmafSDH3PgZXmj93F3HOPJqerP7WgyHhkgV25wSyGbmaZUrkb+ePSM7LkWDD0XuVpPLinu9UajoixtuTe7YXZybLs2xwIySrwdD7JwAFdrjXIqwFkDEqO2krwAh2iUcWKUgM8L2y59kp0zCjvJufjvlj3SCvJwLJsajf1ajssqkB9Mu9FyZ2KYFBG8Rb7EYX+KIPuQLeNFeYPtaKcOPzMcI34AhZ9OZAOnRAoAAAAASUVORK5CYII=" /> VerusRPC</a>
+    <div class="navbar-brand">
+    <a class="navbar-brand position-relative" href="/">
+      <img alt="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADeklEQVR4Aa1XA5DlQBBNXZ1t276sziqdbTPJ2bZt27Ztm8n8tW17N30zx9mt/J/5uX1VHXb6DVrhWNFg3PciNoIyzEZUjmF5jyUIS8RPEZRAfH5nKypHeBENbjLJtSCXVWg42lSfl9AJTJCEBdgEJfCSfLjhqG+1jBMP/ZYPG9uBjaURowYlFcumtiM8c1tFzo91rGwryTIzkb58tZNQRSZyO+l7A/yBLxbIYvG0FeQ6OuSmMjS5raTA+jOBEBieAg8+RkOTcUiXyGEsguP3w8AvJJmcUxzGoETKNzxsRn4uoUnebNrrPMS7/5KLinr1ZQTQOPck3CK53RgEjz5FAw3ZMyHNTlLi/ujwovKi+iTXXFxm4BebaWO7rwZDZqgqwMh1HmYHcO5xOGjh9MPw8Ay6krKIo0HChXjsH4W2Ux3VlFQVtODmnwSNNbZiw7lAMIfUNBVaTTbFUfrRGbYC780h2tjsfT5gCRsxGa0/fqsXpKtgETP2+GQIZ1sRbeUISNbCD+Lpl/MP+IIlRMamQctJpp+67Wc5Q0RMKtBg3Lpo4nccL6FBmZezx0IX0MP+myFgj53ui2s86OH8U3POi7qR5T+o9VLxTABLiE9Kh0vPI0APHgFJ0GyCSXMAvPR9C0eHHi1z9/vC/yI5RYUBy93Mh66gPCQDCNV6SZaXJJP/wbJj/npFy4MMIMWcAjFgFNdeRuqnZ0kJIwNItpTZvIKsXwXiPyxpm6y+9hZQsuK4dasQE58G3Ra46JNTW/Ber7gEhKUAC0i8T9vlzUJOOaGgHNBTXHGCbRWO3AllJKfC0FaU+7GUWO9gy77w3imO+IxVA7AXTJ04O+ljXnwTq6c8c4/5+uAXmkwKmDXkZPnD6vVFOTkCc9mQFtKcOHonala6EWs9DHRI8vZ/5Vj4VoWl6x2/xQsyY92ZAAPkuEEZ5VSWo8ELaCXLx+8c4+AP7ryLMkIOvIjmafSDH3PgZXmj93F3HOPJqerP7WgyHhkgV25wSyGbmaZUrkb+ePSM7LkWDD0XuVpPLinu9UajoixtuTe7YXZybLs2xwIySrwdD7JwAFdrjXIqwFkDEqO2krwAh2iUcWKUgM8L2y59kp0zCjvJufjvlj3SCvJwLJsajf1ajssqkB9Mu9FyZ2KYFBG8Rb7EYX+KIPuQLeNFeYPtaKcOPzMcI34AhZ9OZAOnRAoAAAAASUVORK5CYII=" />
+      VerusRPC
+    </a>
+    </div>
+    
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
@@ -51,7 +58,7 @@
             <li><a class="dropdown-item" href="/send">Send</a></li>
             <li><a class="dropdown-item" href="/convert">Convert</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="/exportto">Send Cross Network</a></li>
+            <li><a class="dropdown-item" href="/exportto">Export</a></li>
           </ul>
         </li>
       </ul>
@@ -64,12 +71,13 @@
           assign rcss = "text-bg-success"
         endif
     %}
-    <a class="btn btn-dark m-0 p-0 px-2 mx-2 {{rcss}}">
+    <div class="badge bg-secondary-subtle m-0 p-0 p-2 mx-2 {{rcss}}">
     <span class="text-nowrap">
     <small>Next Block</small> <i class="fa-solid fa-cubes ms-1"></i> {{ vars.nextblockreward.height }}
-    &nbsp; <small>Reward</small> <i class="fa-solid fa-trophy"></i> {{ vars.nextblockreward.reward }} <small>{{vars.currencynames[vars.coin]}}</small>
+    &nbsp; <small>Reward</small> <i class="fa-solid fa-trophy"></i> {{ vars.nextblockreward.reward | round: 3 }} <small>{{vars.currencynames[vars.coin]}}</small>
+    &nbsp; <small>verusd <a href="https://github.com/VerusCoin/VerusCoin/releases" target="_blank">{{vars.info.VRSCversion}}</a></small>
     </span>
-    </a>
+    </div>
   </div>
 </nav>
 
@@ -166,5 +174,10 @@
 </div>
 
 </body>
+<script>
+$(document).ready(function() {
+  $("time.timeago").timeago();
+});
+</script>
 </html>
 

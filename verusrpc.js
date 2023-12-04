@@ -4,12 +4,8 @@ const crypto = require('node:crypto');
 const { isAddress } = require('web3-validator');
 
 const axios = require('axios');
-const sqlite3 = require('sqlite3').verbose();
 
-const explorers = require("./explorers.json");
-
-const RPC_CACHE_DB_NAME = "cacherpc";
-const RPC_CACHE_TIMEOUT = 60000; // milli seconds
+const RPC_CACHE_TIMEOUT = 300000; // 5 minute rpc cache...
 
 
 const OPT_IS_TOKEN = 0x20;
@@ -30,12 +26,15 @@ const FLAG_SAME_CHAIN = 0x80;
 const FLAG_LAUNCH_COMPLETE = 0x100;
 const FLAG_CONTRACT_UPGRADE = 0x200;
 
+
 function checkCurrencyOption(integer, flag) {
   return (flag & integer) == flag;
 }
-function checkCurrencyFlag(integer, flag) {
+function checkFlag(integer, flag) {
   return (flag & integer) == flag;
 }
+
+const explorers = require("./explorers.json");
 
 var currentBlockHeight = 0;
 
@@ -45,7 +44,7 @@ class VerusRPC {
         this.user = user;
         this.pass = pass;
         this.verbose = verbose;
-        this.minconf = 10;
+        this.minconf = 1;
         
         this.curid = 0;
         
@@ -71,44 +70,9 @@ class VerusRPC {
         this.currencynames = {};
     }
 
-    db_get(query, params) {
-      return new Promise((resolve, reject) => {
-        this.db.get(query, params, (err, row) => {
-          if(err) {
-            reject(err);
-          } else {
-            resolve(row);
-          }
-        });
-      });
-    }
-    
-    db_run(query, params) {
-      return new Promise((resolve, reject) => {
-        this.db.run(query, params, (err) => {
-          if(err) {
-            reject(err);
-          } else {
-            resolve(!err);
-          }
-        });
-      });
-    }
-    
     async init() {
-      let p = new Promise((resolve, reject) => {
-        this.db = new sqlite3.Database(':memory:', (err) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve(!err);
-          }
-        });
-      });
-      await p;
-      await this.createCache();
-      
-      // restore saved conversions
+      this.createCache();
+      // restore saved conversions from disk
       if (fs.existsSync("conversions.json")) {
         let data = fs.readFileSync("conversions.json");
         let json = undefined;
@@ -120,42 +84,40 @@ class VerusRPC {
       }
     }
 
-    async createCache() {
-         let q = `CREATE TABLE `+RPC_CACHE_DB_NAME+` (
-  method TEXT PRIMARY KEY,
-  response TEXT NOT NULL,
-  timestamp INTEGER NOT NULL
-);`;
-      let success = await this.db_run(q, []);
-      if (!success) {
-        console.log("ERROR: create_table", q, success); 
-        return false;
+    createCache() {
+      this.rpccache = {};
+    }
+    cleanCache() {
+      let now = Date.now();
+      let toRemove = [];
+      for (let k in this.rpccache) {
+        let item = this.rpccache[k];
+        if ((now - item.timestamp) > RPC_CACHE_TIMEOUT) {
+          toRemove.push(k);
+        }
       }
-      return true;
+      for (let i in toRemove) {
+        let k = toRemove[i];
+        this.rpccache[k] = undefined;
+        delete this.rpccache[k];
+      }
     }
-
-    async cleanCache() {
-      let q = `DELETE FROM `+RPC_CACHE_DB_NAME+` WHERE timestamp<?;`;
-      let p = [Date.now()-RPC_CACHE_TIMEOUT];
-      let r = await this.db_get(q, p);
-    }
-
-    async updateCache(method, params, response) {
+    updateCache(method, params, response) {
       let uid = method + JSON.stringify(params);
-      let hash = crypto.createHash('md5').update(uid).digest("hex");
-      let sql = `INSERT OR REPLACE INTO `+RPC_CACHE_DB_NAME+`(method,response,timestamp) VALUES(?,?,?);`;
-      let p = [ hash, response, Date.now() ];
-      let r = await this.db_run(sql, p);
+      let hash = crypto.createHash('sha256').update(uid).digest("hex");
+      let r = this.rpccache[hash]?1:0; // 1 = updated, 0 = added
+      this.rpccache[hash] = {};
+      this.rpccache[hash].response = response;
+      this.rpccache[hash].timestamp = Date.now();
       return r;
     }
-
-    async getCache(method, params) {
+    getCache(method, params) {
       let uid = method + JSON.stringify(params);
-      let hash = crypto.createHash('md5').update(uid).digest("hex");
-      let sql = `SELECT response,timestamp FROM `+RPC_CACHE_DB_NAME+` WHERE method=?;`;
-      let p = [ hash ];
-      let r =  await this.db_get(sql, p);
-      return r;
+      let hash = crypto.createHash('sha256').update(uid).digest("hex");
+      if (this.rpccache[hash]) {
+        return this.rpccache[hash];
+      }
+      return undefined;
     }
     
     // *Note, just in case we need to format something when building rpc request to daemon
@@ -367,15 +329,13 @@ class VerusRPC {
         // check cache first
         let orig_start = Date.now();
         let start = orig_start;
-        let cache = await this.getCache(method, params);
+        let end = orig_start;
+        let cache = this.getCache(method, params);
         if (cache && useCache !== false) {
           if (useCache === true || (start - cache.timestamp) < RPC_CACHE_TIMEOUT) {
-            return { result: JSON.parse(cache.response), error:undefined };
+            return { result: cache.response, error:undefined };
           }
         }
-        let end = Date.now();
-        let cacheTotalMs = end - start;
-        
         let data = JSON.stringify({
             jsonrpc: "1.0",
             id: this.curid,
@@ -438,21 +398,18 @@ class VerusRPC {
         });
         
         await rsp;
+
         end = Date.now();
         let rpcTotalMs = end - start;
-        if (result.result !== undefined) {
-          start = Date.now();
-          this.updateCache(method, params, JSON.stringify(result.result));
-          end = Date.now();
-          cacheTotalMs += (end - start);
+        if (result && result.result !== undefined) {
+          this.updateCache(method, params, result.result);
         }
-
         end = Date.now();
         let total_time = (end - orig_start);
         if (this.verbose > 1) {
-          console.log("RPC `"+data+"` took", total_time +"ms; rpc took", rpcTotalMs + "ms; cache took", cacheTotalMs + "ms");
-        } else if (this.verbose > 0 || rpcTotalMs > 5000 || cacheTotalMs > 250) {
-          console.log("RPC `"+method+"` took", total_time +"ms; rpc took", rpcTotalMs + "ms; cache took", cacheTotalMs + "ms");
+          console.log("RPC `"+data+"` took", total_time +"ms; rpc took", rpcTotalMs + "ms");
+        } else if (this.verbose > 0 || rpcTotalMs > 5000) {
+          console.log("RPC `"+method+"` took", total_time +"ms; rpc took", rpcTotalMs + "ms");
         }
 
         return result;
@@ -526,40 +483,19 @@ class VerusRPC {
     }
     
     async getTemplateVars(useCache=undefined) {
-      this.addresses = await this.getAddresses(useCache);
-      this.balances = await this.getBalances(1, useCache);
 
-      this.mininginfo = await this.getMiningInfo(useCache);
-      this.nextblockreward = await this.getNextBlockReward(useCache);
-
-      const opids = await this.listOperationIDs(useCache);
-      const txids = await this.monitorTransactionIDs(useCache);
+      const opids = await this.listOperationIDs(true);
+      const txids = await this.monitorTransactionIDs(true);
       const opid_counts = {};
       const keys = Object.keys(opids);
+
       for (let key in keys) {
         opid_counts[keys[key]] = Object.keys(opids[keys[key]]).length;
-      }
-      
-      // sanity check
-      if (!this.info) {
-        this.info = {};
-      }
-      if (!this.addresses) {
-        this.addresses = {};
-      }
-      if (!this.balances) {
-        this.balances = {};
-      }
-      if (!this.mininginfo) {
-        this.mininginfo = {};
-      }
-      if (!this.nextblockreward) {
-        this.nextblockreward = {};
       }
 
       return {
         coin: this.nativecurrencyid,
-        coins: Object.keys(this.balances.currencynames),
+        coins: this.balances.currencynames?Object.keys(this.balances.currencynames):[],
         
         addresses: this.addresses,
         balances: this.balances,
@@ -818,11 +754,10 @@ class VerusRPC {
     }
 
     async listOperationIDs(useCache=undefined) {
-      // never use cache unless told otherwise      
+      // never use cache unless told otherwise
       await this.getOperationStatus([], (useCache===true?true:false));
 
       let r = {};
-
       // get counts of status types
       for(let opid in this.ops) {
         let op = this.ops[opid];
@@ -835,7 +770,7 @@ class VerusRPC {
           }
         }
       }
-      
+
       // add ops list
       r.ops = this.ops;
 
@@ -899,8 +834,6 @@ class VerusRPC {
               if (useCache === false) {
                 // add txid for monitoring
                 this.add_txid(op.result.txid);
-                // update all balances
-                this.balances = await this.getBalances(1, false);
               }
             }
             // clear from monitoring
@@ -919,14 +852,35 @@ class VerusRPC {
       }
       return fee;
     }
-    async getcurrencyconverters(list, useCache) {
+    async getcurrencyconverters(params, useCache) {
       let r = undefined;
-      let rsp = await this.request("getcurrencyconverters", list, useCache);
+      let rsp = await this.request("getcurrencyconverters", params, useCache);
       if (rsp && !rsp.error) {
         r = rsp.result;
       }
       return r;
     }
+    
+    getConverters(params) {
+      let found = [];
+      for(let i in this.currencies) {
+        let c = this.currencies[i];
+        if (c && c.bestcurrencystate && c.bestcurrencystate.reservecurrencies && !c.isFailedLaunch && !c.isPrelaunch) {
+          let count = 0;
+          for (let z in c.bestcurrencystate.reservecurrencies) {
+            let r = c.bestcurrencystate.reservecurrencies[z];
+            if (params.indexOf(r.currencyid) > -1) {
+              count++;
+            }
+          }
+          if (count == params.length) {
+            found.push(c.currencyid);
+          }
+        }
+      }
+      return found;
+    }
+    
     async estimateConversion(amount, from, to, via, useCache) {
       let r = undefined;
       let params = {
@@ -1183,7 +1137,7 @@ class VerusRPC {
       let quoteReserves = 0;
       let cstate = state.currencystate;
       if (!cstate && state.importnotarization && state.importnotarization.currencystate) { cstate = state.importnotarization.currencystate; }
-      if (state.bestcurrencystate) { cstate = state.bestcurrencystate; }
+      if (!cstate && state.bestcurrencystate) { cstate = state.bestcurrencystate; }
       for (let i in cstate.reservecurrencies) {
         let c = cstate.reservecurrencies[i];
         if (c.currencyid == baseid) {
@@ -1199,7 +1153,7 @@ class VerusRPC {
       return 0;
     }
     
-    async getCurrencyState(currencyid, startBlock, endBlock, step=30) {
+    async getCurrencyState(currencyid, startBlock, endBlock, step=1) {
       let r = undefined;
       let d = await this.request("getcurrencystate", [currencyid, [startBlock, endBlock, step].join(",")], true);
       if (d && !d.error && d.result) {
@@ -1336,11 +1290,36 @@ class VerusRPC {
       }
     }
     
+    async getUnspentBlockRewards(useCache=undefined) {
+      let r = [];
+      let rsp = await this.request("listunspent", [], false, useCache);
+      if (rsp && !rsp.error) {
+        for (let i in rsp.result) {
+          let utxo = rsp.result[i];
+          if (utxo.generated && utxo.generated === true) {
+            r.push(utxo);
+          }
+        }
+      }
+      return r;
+    }
+
     async getOffers(currencyid, isCurrency=false, withtx=false, useCache=undefined) {
       let r = undefined;
       let rsp = await this.request("getoffers", [currencyid, isCurrency, withtx], useCache);
       if (rsp && !rsp.error) {
         r = rsp.result;
+      }
+      return r;
+    }
+
+    async getPendingTransfers(currencyid) {
+      let r = undefined;
+      let rsp = await this.request("getpendingtransfers", [currencyid], false);
+      if (rsp && !rsp.error) {
+        if (rsp.result && Array.isArray(rsp.result)) {
+          r = rsp.result;
+        }
       }
       return r;
     }
@@ -1396,6 +1375,9 @@ class VerusRPC {
       } else {
         console.error(rsp);
       }
+      
+      this.addresses = addresses;
+      
       return addresses;
     }
 
@@ -1428,10 +1410,11 @@ class VerusRPC {
       let totals = {};
       let currencynames = {};
       let balances = {};
-      let addresses = await this.getAddresses(useCache);
+
+      let addresses = await this.getAddresses(true);
       if (addresses !== undefined) {
         // check listaddressgroupings for any missed R* addresses
-        let rsp = await this.request("listaddressgroupings", [], useCache);
+        let rsp = await this.request("listaddressgroupings", [], true);
         if (rsp && !rsp.error) {
             let groupings = rsp.result;
             for (let i in groupings) {
@@ -1442,14 +1425,15 @@ class VerusRPC {
                     }
                 }
             }
+
         } else {
-          console.error(rsp);
+          console.error("error, listaddressgroupings", rsp);
           return {totals:totals, balances:balances};
         }
 
         for (let i in addresses.identities) {
           let addr = addresses.identities[i];
-          rsp = await this.getCurrencyBalance(addr, minconf);
+          rsp = await this.getCurrencyBalance(addr, minconf, false, false);
           if (rsp !== undefined) {
             for (let currencyid in rsp) {
               let name = this.currencies[currencyid].fullyqualifiedname || currencyid;
@@ -1475,7 +1459,7 @@ class VerusRPC {
         
         for (let i in addresses.public) {
           let addr = addresses.public[i];
-          rsp = await this.getCurrencyBalance(addr, minconf);
+          rsp = await this.getCurrencyBalance(addr, minconf, false, false);
           if (rsp !== undefined) {
             for (let currencyid in rsp) {
               let name = this.currencies[currencyid].fullyqualifiedname || currencyid;

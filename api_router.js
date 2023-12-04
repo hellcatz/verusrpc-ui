@@ -217,11 +217,14 @@ async function renderHome(req,res) {
 async function renderViewCurrency(req,res) {
   const tvar = await rpc.getTemplateVars(true);
   const currency = await rpc.getCurrency(req.params.currencyid, true);
+  const transfers = await rpc.chartly.getLatestTransfers(req.params.currencyid);
   if (tvar != undefined) {
     res.render('viewcurrency', {
         title: 'View Currency',
         vars: tvar,
-        currency: currency
+        currency: currency,
+        transfers: transfers,
+        basketid: req.params.currencyid
     })
   } else {
       res.status(500).type('application/json').send({error: 500});
@@ -275,7 +278,7 @@ async function renderExportToCurrency(req,res) {
   const tvar = await rpc.getTemplateVars(true);
   if (tvar != undefined) {
     res.render('export', {
-      title: 'Send Cross-Chain',
+      title: 'Export',
       vars: tvar
     })
   } else {
@@ -523,6 +526,7 @@ router.get('/api/transaction/:txid', (req, res) => {
 });
 
 // DIRECT RPC (Dev Only, temp for testing)
+/*
 router.get('/rpc/:method', (req, res) => {
     unsafeRpcGET(req, res);
 });
@@ -532,6 +536,7 @@ router.get('/rpc/:method/:params', (req, res) => {
 router.post('/rpc/:method', urlencodedParser, (req, res) => {
     unsafeRpcPOST(req, res);
 });
+*/
 
 router.init = init
 module.exports = router

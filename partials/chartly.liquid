@@ -107,14 +107,14 @@ var valueAxis = mainPanel.yAxes.push(am5xy.ValueAxis.new(root, {
   }),
   extraMin: 0.1, // adds some space for for main series
   tooltip: am5.Tooltip.new(root, {}),
-  numberFormat: "#.##a",
+  numberFormat: "#.###a",
   extraTooltipPrecision: 2
 }));
 
 var dateAxis = mainPanel.xAxes.push(am5xy.GaplessDateAxis.new(root, {
   baseInterval: {
     timeUnit: "minute",
-    count: 30
+    count: 5
   },
   renderer: am5xy.AxisRendererX.new(root, {}),
   tooltip: am5.Tooltip.new(root, {})
@@ -134,7 +134,7 @@ var valueSeries = mainPanel.series.push(am5xy.CandlestickSeries.new(root, {
   calculateAggregates: true,
   xAxis: dateAxis,
   yAxis: valueAxis,
-  legendValueText: "O: [bold]{openValueY.formatNumber('#.##a')}[/] H: [bold]{highValueY.formatNumber('#.##a')}[/] L: [bold]{lowValueY.formatNumber('#.##a')}[/] C: [bold]{valueY.formatNumber('#.##a')}[/]",
+  legendValueText: "O: [bold]{openValueY.formatNumber('#.###a')}[/] H: [bold]{highValueY.formatNumber('#.###a')}[/] L: [bold]{lowValueY.formatNumber('#.###a')}[/] C: [bold]{valueY.formatNumber('#.###a')}[/]",
   legendRangeValueText: ""
 }));
 
@@ -179,7 +179,7 @@ var volumeSeries = mainPanel.series.push(am5xy.ColumnSeries.new(root, {
   valueYField: "Volume",
   xAxis: dateAxis,
   yAxis: volumeValueAxis,
-  legendValueText: "[bold]{valueY.formatNumber('#.##a')}[/]"
+  legendValueText: "[bold]{valueY.formatNumber('#.00a')}[/]"
 }));
 
 volumeSeries.columns.template.setAll({
@@ -227,7 +227,7 @@ stockChart.toolsContainer.children.push(scrollbar);
 var sbDateAxis = scrollbar.chart.xAxes.push(am5xy.GaplessDateAxis.new(root, {
   baseInterval: {
     timeUnit: "minute",
-    count: 30
+    count: 5
   },
   renderer: am5xy.AxisRendererX.new(root, {})
 }));
@@ -249,14 +249,14 @@ sbSeries.fills.template.setAll({
 });
 
 // add indicator
-stockChart.indicators.push(am5stock.RelativeStrengthIndex.new(root, { stockChart: stockChart, stockSeries: valueSeries }));
+//stockChart.indicators.push(am5stock.RelativeStrengthIndex.new(root, { stockChart: stockChart, stockSeries: valueSeries }));
 
 // zoom to some period
 var periodSelector = am5stock.PeriodSelector.new(root, {
   stockChart: stockChart,
   zoomTo: "end",
   periods: [
-    { timeUnit: "day", count: 3, name: "3D" },
+    { timeUnit: "hour", count: 72, name: "3D" },
     { timeUnit: "day", count: 7, name: "7D" },
     { timeUnit: "day", count: 14, name: "2W" },
     { timeUnit: "max", count: 1, name: "Max" }
@@ -303,7 +303,6 @@ let getChartData = (basketid, currencyid, quoteid) => {
       
       // update legend
       valueLegend.data.setAll([valueSeries, volumeSeries]);
-      
     },
     error: function (err) {
       if (err.responseText) {
@@ -341,6 +340,5 @@ let getChartData = (basketid, currencyid, quoteid) => {
 <!-- HTML -->
 <div id="chartcontrols"></div>
 <div id="chartdiv"></div>
-
 
 </div>

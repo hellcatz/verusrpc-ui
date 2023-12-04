@@ -86,7 +86,9 @@
               {% else %}
               <option value=""> </option>
               {% for c in vars.currencies %}
+              {% if not c[1].isFailedLaunch %}
               <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
+              {% endif %}
               {% endfor %}
               {% endif %}
             </select>
@@ -97,8 +99,10 @@
               {% endif %}
               <option value=""> </option>
               {% for c in vars.currencies %}
+              {% if not c[1].isFailedLaunch %}
               {% if c[1].isFractional and c[1].currencies.length > 1 and c[1].startblock < vars.info.blocks and c[0] != estimate_via %}
               <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
+              {% endif %}
               {% endif %}
               {% endfor %}
             </select>

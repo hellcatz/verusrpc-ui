@@ -5,5 +5,7 @@
   "rpchost": "",
   "rpcport": "",
   
-  "listenport": 8080
+  "listenport": 8080,
+  
+  "autoprune": true
 }

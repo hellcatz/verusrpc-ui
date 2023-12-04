@@ -1,12 +1,12 @@
 {
-  "VRSC": { 
-    "blockUrl": "https://insight.verus.io/block/",
-    "txUrl": "https://insight.verus.io/tx/",
-    "addressUrl":"https://insight.verus.io/address/"
+  "i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV": { 
+    "block": "https://insight.verus.io/block",
+    "txid": "https://insight.verus.io/tx",
+    "address":"https://insight.verus.io/address"
   },
-  "VRSCTEST": { 
-    "blockUrl": "https://testex.verus.io/block/",
-    "txUrl": "https://testex.verus.io/tx/",
-    "addressUrl":"https://testex.verus.io/address/"
+  "iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq": { 
+    "block": "https://testex.verus.io/block",
+    "txid": "https://testex.verus.io/tx",
+    "address":"https://testex.verus.io/address"
   }
 }
