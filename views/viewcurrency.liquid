@@ -6,6 +6,13 @@
           <h2 class="card-title mx-4 pt-2">{{ currency.fullyqualifiedname }}</h2>
           <div class="mx-2 w-100">
             <div class="d-flex justify-content-start">
+              {% if currency.startblock > vars.info.blocks %}
+                <div class="me-4 text-center pt-1 text-nowrap">
+                  <small>Pre-Converison</small><br />
+                  <strong>{{ currency.startblock | minus: vars.info.blocks }} blocks remaining</strong>
+                </div>
+              {% endif %}
+              
               {% if currency.nativecurrencyid %}
               <div class="me-4 text-center pt-1"><small>Native Currency ID</small><br /><code>{{currency.nativecurrencyid.address | json: 2}}</code></div>
               {% endif %}
@@ -41,6 +48,10 @@
                 <strong>{{ vars.tickers[currency.currencyid].quotes.USD.price | round: 3 }} USD*</strong>
                 </div>
               {% endif %}
+              
+              <!--{% for basketid in baskets %}
+                {{ vars.currencynames[basketid] }}
+              {% endfor %}-->
             </div>            
           </div>
         </div>

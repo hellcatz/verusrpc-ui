@@ -115,10 +115,10 @@ async function startApp() {
 
   vconf = getVerusConf();
   if (!vconf) {
-    console.error("Unable to locate verus config!");
-    return;
+    vconf = {};
+    console.log("Using daemon rpc details from config.json");
   }
-  
+
   let verbose = config.verbose || 0;
   argv.forEach((val, index) => {
     console.log(`${index}: ${val}`);
@@ -129,15 +129,15 @@ async function startApp() {
 
   const listenport = config.listenport || 8080;
 
-  const rpchost = config.rpchost || vconf.rpchost || "127.0.0.1";
-  const rpcport = config.rpcport || vconf.rpcport || 27486;
-  const rpcuser = config.rpcuser || vconf.rpcuser || "user";
-  const rpcpass = config.rpcpassword || vconf.rpcpassword || "pass";
+  const rpchost = vconf.rpchost || config.rpchost || "127.0.0.1";
+  const rpcport = vconf.rpcport || config.rpcport || 27486;
+  const rpcuser = vconf.rpcuser || config.rpcuser || "user";
+  const rpcpass = vconf.rpcpassword || config.rpcpassword || "pass";
 
   let daemon_url = "http://" + rpchost + ":" + rpcport;
 
   vrpc = new VerusRPC(daemon_url, rpcuser, rpcpass, verbose);
-  vproc = new VerusPROC(vrpc, api, verbose);
+  vproc = new VerusPROC(config, vrpc, api, verbose);
   
   await vrpc.init();
   await vproc.initPlugins();
@@ -161,12 +161,17 @@ async function startApp() {
     }
 
     // pass config and verusrpc to api
-    await api.init(config, vrpc);
+    await api.init(vrpc);
     
     console.log("Caching currencies...");
+
+    await vrpc.getInfo(false);
     
-    // cache currencies now
-    await vrpc.listCurrencies(false);
+    // initially cache currencies
+    await vrpc.listCurrencies([{systemtype:"pbaas"}], false);
+    await vrpc.listCurrencies([{systemtype:"gateway"}], false);
+    await vrpc.listCurrencies([], false);
+    await vrpc.listCurrencies([{systemtype:"imported"}], false);
 
     // start verus processor
     await vproc.start();
@@ -177,7 +182,7 @@ async function startApp() {
     })
 
   } else {
-    console.log("FATAL: missing verusd");
+    console.log("Error, unable to connect to rpc daemon");
   }
 
 }

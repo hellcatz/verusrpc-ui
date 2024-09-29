@@ -1,3 +1,4 @@
+const config = require('../config.json');
 
 const TYPE_DEST_PK = 1;
 const TYPE_DEST_PKH = 2;
@@ -20,7 +21,9 @@ function hasFlag(integer, flag) {
 }
 
 class VerusProcPluginChartly {
-    constructor(rpc, api, verbose=0) {      
+    constructor(config, rpc, api, verbose=0) {      
+        this.config = config;
+        
         this.verus = rpc;
         this.api = api;
         this.verbose = verbose;
@@ -42,13 +45,17 @@ class VerusProcPluginChartly {
       return "Chartly";
     }
     version() {
-      return "0.0.2";
+      return "0.0.3";
     }
 
     log(...args) {
       console.log(this.name(), ...args);
     }
     
+    
+    isInteger(value) {
+        return /^\d+$/.test(value);
+    }
     async renderMarketChart(req,res) {
       let basketid = req.params.basketid||"i3f7tSctFkiPpiedY8QR5Tep9p4qDVebDx";
       let currencyid = req.params.currencyid||"i5w5MuNik5NtLcYmNzcvaoixooEebB6MGV";
@@ -67,6 +74,10 @@ class VerusProcPluginChartly {
       if (req.params.limit) {
         limit = req.params.limit;
       }
+      if (this.isInteger(address)) {
+        limit = address;
+        address = undefined;
+      }
       const transfers = this.getLatestTransfers(req.params.basketid, address, limit);
       if (tvar != undefined) {
         res.render('viewtransfers', {
@@ -84,14 +95,14 @@ class VerusProcPluginChartly {
 
     async init() {
       // api into our cache
-      this.api.get('/api/latest/:basketid', async (req, res) => {
+      this.api.get('/api/market/:basketid', async (req, res) => {
         if (this.markets[req.params.basketid]) {
           res.status(200).type('application/json').send(this.markets[req.params.basketid].slice(-10).reverse());
         } else {
           res.status(200).type('application/json').send([]);
         }
       });
-      this.api.get('/api/latest/transfers/:basketid', async (req, res) => {
+      this.api.get('/api/transfers/:basketid', async (req, res) => {
         let transfers = this.getLatestTransfers(req.params.basketid);
         if (transfers) {
           res.status(200).type('application/json').send(transfers);
@@ -204,14 +215,14 @@ class VerusProcPluginChartly {
         
         // start
         let start = Date.now();
-        if (this.verbos > 0) {
+        if (this.verbose > 0) {
           this.log("runOnce start");
         }
 
         await this.doWork();
         
         let end = Date.now();
-        if (this.verbos > 0) {
+        if (this.verbose > 0) {
           this.log("runOnce took", (end - start), "ms");
         }
         
@@ -219,58 +230,7 @@ class VerusProcPluginChartly {
       }
     }
 
-    async calculateSlippageData(basketid) {
-      if (this.verus.currencies[basketid]) {
-        let c = this.verus.currencies[basketid];
-        let slippage = {};
-        let si = 1;
-        
-        if (this.markets[basketid]) {
-          let imp = this.markets[basketid].slice(-1)[0].results.slice(-1)[0];
-          let cstate = imp.importnotarization.currencystate;
-          if (cstate && cstate.reservecurrencies) {
-            while (si < 10) {              
-               for (let i in cstate.reservecurrencies) {
-                let base = cstate.reservecurrencies[i];
-                let from = base.currencyid;
-                for (let z in cstate.reservecurrencies) {
-                  let quote = cstate.reservecurrencies[z];
-                  let to = quote.currencyid;
-                  let price = this.verus.getReserveCurrencyPrice(imp, quote.currencyid, base.currencyid)
-                  let amount = price * si;
-                  let estimate = await this.verus.estimateConversion(amount, from, to, basketid, false);
-                  if (estimate) {
-                    if (!slippage[from]) { slippage[from] = {} }
-                    slippage[from][to] = (si - estimate.estimatedcurrencyout);
-                    console.log(si, amount, this.verus.currencynames[from], estimate.estimatedcurrencyout, this.verus.currencynames[to]);
-                  }
-                }
-              }
-              //console.log(si, slippage);
-              si += 1;
-            }
-          }
-        }
-      }
-    }
-    
-    async calculateMarketDataFromCurrencyState(basketid, startBlock, endBlock, step=1, update_last_ohlc=false) {
-
-      // extract martket data from import notarizations for most accurate
-      let v = await this.verus.getCurrencyState(basketid, startBlock, endBlock);
-      if (v && Array.isArray(v)) {
-        //console.log(v);
-        for (let i in v) {
-          let c = v[i];
-          //c.height;
-          //c.blocktime;
-          
-        }
-      }     
-    }
-
     findReserveOutput(transfer, vout, index=0) {
-      let last = undefined;
       let n = 0;
       let destinationcurrencyid = transfer.destinationcurrencyid;
       let destination = transfer.destination.address;
@@ -307,54 +267,75 @@ class VerusProcPluginChartly {
           n++;
         }
       }
-      //console.log("output not found for", transfer);
-      return last;
+      return undefined;
     }
 
-    async calculateMarketData(basketid, startBlock, endBlock, step=1, update_last_ohlc=false) {
-      let ret = undefined;
-      
+    async calculateMarketDataFromCurrencyState(basketid, startBlock, blockHeight, step=1) {
+      // caclulate ticker end block
+      let endBlock = (startBlock + step - 1);
+      if (endBlock > blockHeight) {
+        endBlock = blockHeight;
+      }
+      // extract martket data from past currency states
+      let imports = v = await this.verus.getCurrencyState(basketid, startBlock, endBlock);
+      return await this.parseCurrencyStateArray(basketid, startBlock, endBlock, blockHeight, imports, step);
+    }
+    
+    async calculateMarketDataFromImports(basketid, startBlock, blockHeight, step=1) {
+      // caclulate ticker end block
+      let endBlock = (startBlock + step - 1);
+      if (endBlock > blockHeight) {
+        endBlock = blockHeight;
+      }
+      // extract martket data from import notarizations
+      let imports = await this.verus.getImports(basketid, startBlock, endBlock);
+      return await this.parseCurrencyStateArray(basketid, startBlock, endBlock, blockHeight, imports, step);
+    }
+    
+    async parseCurrencyStateArray(basketid, startBlock, endBlock, blockHeight, imports, step=1) {
+
+      let ret = {};
       let totals = { ohlc: {}, volume: {} };
       let a = [];
       let b = [];
+
+      if (!imports || !Array.isArray(imports)) { imports = []; }
+      if (!totals.ohlc[basketid]) { totals.ohlc[basketid] = {}; }
+      if (!this.last_ohcl[basketid]) { this.last_ohcl[basketid] = {}; }
       
-      // extract martket data from import notarizations
-      let v = await this.verus.getImports(basketid, startBlock, endBlock);
-      if (v && Array.isArray(v)) {
-        
-        ret = {};
-
-        // get the block time
-        let block = await this.verus.request("getblock", [startBlock.toFixed()], true);
-        if (block && !block.error) {
-          let time = ((block.result.time||(Date.now()/1000)));
-          if (time && time > 0) {
-            ret.blocktime = time;
-          }
+      // get the block time
+      let block = await this.verus.request("getblock", [startBlock.toFixed()], true);
+      if (block && !block.error) {
+        let time = ((block.result.time||(Date.now()/1000)));
+        if (time && time > 0) {
+          ret.blocktime = time;
         }
+      }
 
-        ret.start = startBlock;
-        ret.end = endBlock;
+      let tickerComplete = blockHeight > endBlock;
+      
+      ret.start = startBlock;
+      ret.end = endBlock;
 
-        if (!totals.ohlc[basketid]) { totals.ohlc[basketid] = {}; }
-        if (!this.last_ohcl[basketid]) { this.last_ohcl[basketid] = {}; }
-        
-        for (let i in v) {
-          let state = v[i];
-        
-          let block = await this.verus.request("getblock", [state.importheight.toFixed()], true);
+      for (let i in imports) {
+        let state = imports[i];
+        let height = state.height;
+        if (!height) { height = state.importheight; }
+        if (!state.blocktime) {
+          let block = await this.verus.request("getblock", [height.toFixed()], true);
           if (block && !block.error) {
             let time = ((block.result.time||(Date.now()/1000)));
             if (time && time > 0) {
               state.blocktime = time;
             }
           }
-          
-          let currencystate = state.importnotarization.currencystate;
-          
+        }
+
+        let currencystate = state.importnotarization?state.importnotarization.currencystate:state.currencystate;
+
+        if (state.transfers && state.importtxid) {
           // get transaction for amounts received
           let tx = await this.verus.getRawTransaction(state.importtxid, true, false);
-
           // keep transfer history
           if (state.transfers && state.transfers.length > 0) {
             for (let i in state.transfers) {
@@ -373,110 +354,28 @@ class VerusProcPluginChartly {
                 state.transfers[i].output = output;
               }
               
+              /*
               // TODO, decode flags and type for more detailed info about the transaction conversion,export,etc.
               if (hasFlag(state.transfers[i].destination.type, TYPE_DEST_ETH)) {
                 state.transfers[i].destination.exportETH = true;
               } else if (hasFlag(state.transfers[i].destination.type, TYPE_DEST_ETHNFT)) {
                 state.transfers[i].destination.exportETH = true;
               } else if  (hasFlag(state.transfers[i].destination.type, TYPE_FLAG_DEST_GATEWAY)) {
-                console.log("FLAG_DEST_GATEWAY", state.transfers[i].destination);
+                this.log("FLAG_DEST_GATEWAY", state.transfers[i].destination);
               }
+              */
               
               b.push(state.transfers[i]);
             }
           }
-
-          ret.supply = currencystate.supply;
           
-          if (!currencystate.liquidity) { currencystate.liquidity = {}; }
-          
-          // alse parse from getcurrencystate 
-          for (let i in currencystate.reservecurrencies) {
-            let c = currencystate.reservecurrencies[i];
-
-            if (!totals.ohlc[c.currencyid]) { totals.ohlc[c.currencyid] = {}; }
-            if (!this.last_ohcl[c.currencyid]) { this.last_ohcl[c.currencyid] = {}; }
-
-            // track price in currency
-            let priceincurrency = 1 / c.priceinreserve;
-            if (!totals.ohlc[c.currencyid][basketid]) {
-              totals.ohlc[c.currencyid][basketid] = {
-                o: this.last_ohcl[c.currencyid][basketid]?this.last_ohcl[c.currencyid][basketid].c:priceincurrency,
-                h: priceincurrency,
-                l: priceincurrency,
-                c: priceincurrency
-              };
-            }
-            if (!this.last_ohcl[c.currencyid][basketid]) { this.last_ohcl[c.currencyid][basketid] = totals.ohlc[c.currencyid][basketid]; }
-            totals.ohlc[c.currencyid][basketid].c = priceincurrency;
-            totals.ohlc[c.currencyid][basketid].h = priceincurrency>totals.ohlc[c.currencyid][basketid].h?priceincurrency:totals.ohlc[c.currencyid][basketid].h;
-            totals.ohlc[c.currencyid][basketid].l = priceincurrency<totals.ohlc[c.currencyid][basketid].l?priceincurrency:totals.ohlc[c.currencyid][basketid].l;
-            if (update_last_ohlc === true) {
-              this.last_ohcl[c.currencyid][basketid] = totals.ohlc[c.currencyid][basketid];
-            }
-
-            // track price in reserve
-            if (!totals.ohlc[basketid][c.currencyid]) {
-              totals.ohlc[basketid][c.currencyid] = {
-                o: this.last_ohcl[basketid][c.currencyid]?this.last_ohcl[basketid][c.currencyid].c:c.priceinreserve,
-                h: c.priceinreserve,
-                l: c.priceinreserve,
-                c: c.priceinreserve
-              };
-            }
-            if (!this.last_ohcl[basketid][c.currencyid]) { this.last_ohcl[basketid][c.currencyid] = totals.ohlc[basketid][c.currencyid]; }
-            totals.ohlc[basketid][c.currencyid].c = c.priceinreserve;
-            totals.ohlc[basketid][c.currencyid].h = c.priceinreserve>totals.ohlc[basketid][c.currencyid].h?c.priceinreserve:totals.ohlc[basketid][c.currencyid].h;
-            totals.ohlc[basketid][c.currencyid].l = c.priceinreserve<totals.ohlc[basketid][c.currencyid].l?c.priceinreserve:totals.ohlc[basketid][c.currencyid].l;
-            if (update_last_ohlc === true) {
-              this.last_ohcl[basketid][c.currencyid] = totals.ohlc[basketid][c.currencyid];
-            }
-
-            // track liquidity
-            let liquidity = (currencystate.supply * c.priceinreserve);
-            currencystate.liquidity[c.currencyid] = liquidity;
-            ret.liquidity = currencystate.liquidity;
-
-            // track price of each reserve current relate to each other
-            for (let z in currencystate.reservecurrencies) {
-              let cc = currencystate.reservecurrencies[z];
-
-              let price = this.verus.getReserveCurrencyPrice(state, cc.currencyid, c.currencyid);
-              if (price > -1 && Number.isFinite(price)) {
-                if (!currencystate.currencies[cc.currencyid].prices) { currencystate.currencies[cc.currencyid].prices = {}; }
-                currencystate.currencies[cc.currencyid].prices[c.currencyid] = price;
-
-                // track ohlc market data
-                if (!totals.ohlc[cc.currencyid]) { totals.ohlc[cc.currencyid] = {}; }
-                if (cc.currencyid !== c.currencyid) {
-                  if (!this.last_ohcl[cc.currencyid]) { this.last_ohcl[cc.currencyid] = {}; }
-                  if (!totals.ohlc[cc.currencyid][c.currencyid]) {
-                    totals.ohlc[cc.currencyid][c.currencyid] = {
-                      o: this.last_ohcl[cc.currencyid][c.currencyid]?this.last_ohcl[cc.currencyid][c.currencyid].c:price,
-                      h: price,
-                      l: price,
-                      c: price
-                    };
-                  }
-                  if (!this.last_ohcl[cc.currencyid][c.currencyid]) { this.last_ohcl[cc.currencyid][c.currencyid] = totals.ohlc[cc.currencyid][c.currencyid]; }
-                  totals.ohlc[cc.currencyid][c.currencyid].c = price;
-                  totals.ohlc[cc.currencyid][c.currencyid].h = price>totals.ohlc[cc.currencyid][c.currencyid].h?price:totals.ohlc[cc.currencyid][c.currencyid].h;
-                  totals.ohlc[cc.currencyid][c.currencyid].l = price<totals.ohlc[cc.currencyid][c.currencyid].l?price:totals.ohlc[cc.currencyid][c.currencyid].l;
-                  if (update_last_ohlc === true) {
-                    this.last_ohcl[cc.currencyid][c.currencyid] = totals.ohlc[cc.currencyid][c.currencyid];
-                  }
-                }
-              }
-            }
-          }
-
           // get volumes priced in each reserve
           for (let currencyid in currencystate.currencies) {
             let c = currencystate.currencies[currencyid];
-            
+
             if (!totals.volume[basketid]) { totals.volume[basketid] = 0; }
             totals.volume[basketid] += (c.reservein * (1 / c.lastconversionprice));
-                        
+
             if (!totals.volume[currencyid]) { totals.volume[currencyid] = 0; }
             for (let baseid in currencystate.currencies) {
               let cc = currencystate.currencies[baseid];
@@ -486,14 +385,102 @@ class VerusProcPluginChartly {
               }
             }
           }
-
-          a.push(state);
-
         }
 
-        ret.totals = totals;
-        ret.results = a;
-        ret.transfers = b; 
+        ret.supply = currencystate.supply;
+        
+        if (!currencystate.liquidity) { currencystate.liquidity = {}; }
+        
+        // alse parse from getcurrencystate 
+        for (let i in currencystate.reservecurrencies) {
+          let c = currencystate.reservecurrencies[i];
+
+          if (!totals.ohlc[c.currencyid]) { totals.ohlc[c.currencyid] = {}; }
+          if (!this.last_ohcl[c.currencyid]) { this.last_ohcl[c.currencyid] = {}; }
+
+          // track price in currency
+          let priceincurrency = 1 / c.priceinreserve;
+          if (!totals.ohlc[c.currencyid][basketid]) {
+            totals.ohlc[c.currencyid][basketid] = {
+              o: this.last_ohcl[c.currencyid][basketid]?this.last_ohcl[c.currencyid][basketid].c:priceincurrency,
+              h: priceincurrency,
+              l: priceincurrency,
+              c: priceincurrency
+            };
+          }
+          if (!this.last_ohcl[c.currencyid][basketid]) { this.last_ohcl[c.currencyid][basketid] = totals.ohlc[c.currencyid][basketid]; }
+          totals.ohlc[c.currencyid][basketid].c = priceincurrency;
+          totals.ohlc[c.currencyid][basketid].h = priceincurrency>totals.ohlc[c.currencyid][basketid].h?priceincurrency:totals.ohlc[c.currencyid][basketid].h;
+          totals.ohlc[c.currencyid][basketid].l = priceincurrency<totals.ohlc[c.currencyid][basketid].l?priceincurrency:totals.ohlc[c.currencyid][basketid].l;
+          if (tickerComplete === true) {
+            this.last_ohcl[c.currencyid][basketid] = totals.ohlc[c.currencyid][basketid];
+          }
+
+          // track price in reserve
+          if (!totals.ohlc[basketid][c.currencyid]) {
+            totals.ohlc[basketid][c.currencyid] = {
+              o: this.last_ohcl[basketid][c.currencyid]?this.last_ohcl[basketid][c.currencyid].c:c.priceinreserve,
+              h: c.priceinreserve,
+              l: c.priceinreserve,
+              c: c.priceinreserve
+            };
+          }
+          if (!this.last_ohcl[basketid][c.currencyid]) { this.last_ohcl[basketid][c.currencyid] = totals.ohlc[basketid][c.currencyid]; }
+          totals.ohlc[basketid][c.currencyid].c = c.priceinreserve;
+          totals.ohlc[basketid][c.currencyid].h = c.priceinreserve>totals.ohlc[basketid][c.currencyid].h?c.priceinreserve:totals.ohlc[basketid][c.currencyid].h;
+          totals.ohlc[basketid][c.currencyid].l = c.priceinreserve<totals.ohlc[basketid][c.currencyid].l?c.priceinreserve:totals.ohlc[basketid][c.currencyid].l;
+          if (tickerComplete === true) {
+            this.last_ohcl[basketid][c.currencyid] = totals.ohlc[basketid][c.currencyid];
+          }
+
+          // track liquidity
+          let liquidity = (currencystate.supply * c.priceinreserve);
+          currencystate.liquidity[c.currencyid] = liquidity;
+          ret.liquidity = currencystate.liquidity;
+
+          // track price of each reserve current relate to each other
+          for (let z in currencystate.reservecurrencies) {
+            let cc = currencystate.reservecurrencies[z];
+
+            let price = this.verus.getReserveCurrencyPrice(state, cc.currencyid, c.currencyid);
+            if (price > -1 && Number.isFinite(price)) {
+              if (!currencystate.currencies[cc.currencyid].prices) { currencystate.currencies[cc.currencyid].prices = {}; }
+              currencystate.currencies[cc.currencyid].prices[c.currencyid] = price;
+
+              // track ohlc market data
+              if (!totals.ohlc[cc.currencyid]) { totals.ohlc[cc.currencyid] = {}; }
+              if (cc.currencyid !== c.currencyid) {
+                if (!this.last_ohcl[cc.currencyid]) { this.last_ohcl[cc.currencyid] = {}; }
+                if (!totals.ohlc[cc.currencyid][c.currencyid]) {
+                  totals.ohlc[cc.currencyid][c.currencyid] = {
+                    o: this.last_ohcl[cc.currencyid][c.currencyid]?this.last_ohcl[cc.currencyid][c.currencyid].c:price,
+                    h: price,
+                    l: price,
+                    c: price
+                  };
+                }
+                if (!this.last_ohcl[cc.currencyid][c.currencyid]) { this.last_ohcl[cc.currencyid][c.currencyid] = totals.ohlc[cc.currencyid][c.currencyid]; }
+                totals.ohlc[cc.currencyid][c.currencyid].c = price;
+                totals.ohlc[cc.currencyid][c.currencyid].h = price>totals.ohlc[cc.currencyid][c.currencyid].h?price:totals.ohlc[cc.currencyid][c.currencyid].h;
+                totals.ohlc[cc.currencyid][c.currencyid].l = price<totals.ohlc[cc.currencyid][c.currencyid].l?price:totals.ohlc[cc.currencyid][c.currencyid].l;
+                if (tickerComplete === true) {
+                  this.last_ohcl[cc.currencyid][c.currencyid] = totals.ohlc[cc.currencyid][c.currencyid];
+                }
+              }
+            }
+          }
+        }
+
+        a.push(state);
+
+      }
+      
+      ret.totals = totals;
+      ret.results = a;
+      ret.transfers = b;
+
+      if (tickerComplete === true) {
+        ret.nextTickerStart = (endBlock + 1);
       }
 
       return ret;
@@ -501,113 +488,158 @@ class VerusProcPluginChartly {
     
     async gatherPendingTransfers(basketid, last) {
       let p = await this.verus.getPendingTransfers(basketid);
-      if (p && Array.isArray(p)) {
+      if (last && p && Array.isArray(p)) {
         last.pendingtransfers = p;
       }
     }
 
     async doWork() {
+
+      let maxhistory = 43200; // default to 1 month history
+      let ticker_blocks = 60;  // default to 1 hour tickers
+      let scanBaskets = [];
+
+      if (this.config && this.config.chartly) {
+        if (this.config.chartly.maxHistoryBlocks) {
+          maxhistory = this.config.chartly.maxHistoryBlocks;
+        }
+        if (this.config.chartly.tickerBlocks) {
+          ticker_blocks = this.config.chartly.tickerBlocks;
+        }
+        if (this.config.chartly.baskets && Array.isArray(this.config.chartly.baskets)) {
+          scanBaskets = this.config.chartly.baskets;
+        }
+      }
+      
+      // sanity check
+      if (ticker_blocks > maxhistory) {
+        maxhistory = ticker_blocks;
+      }
+
       // if we have blocks, calculate market data
       if (this.verus.info && this.verus.info.blocks) {
-
-        // TODO, scan from list
-        //  currently hardcoded to only scan Bridge.vETH        
-        const basketid = "i3f7tSctFkiPpiedY8QR5Tep9p4qDVebDx";
-        
-        // if new block ...
+        let baskets = await this.verus.getBaskets();
+        let newBlock = false;
         if (this.lastBlock != this.verus.info.blocks) {
-          this.lastBlock = this.verus.info.blocks;
+            this.lastBlock = this.verus.info.blocks;
+            newBlock = true;
+        }
+        
+        // scan baskets history
+        for (let b in baskets) {
+          let basketid = baskets[b].currencyid;
 
-          const maxhistory = 43200;
-          const blocktime = 60;
-          const blocksday = 1440;
-          const ticker_blocks = 20;
-
+          // scan custom list of baskets
+          if (scanBaskets.length > 0 && scanBaskets.indexOf(basketid) < 0) {
+            continue;
+          }
+          
           // if we have cached the currency definition
-          if (this.verus.currencies[basketid] && this.verus.currencies[basketid].startblock && this.verus.currencies[basketid].startblock < this.verus.info.blocks) {
-            
+          if (this.verus.currencies[basketid] && this.verus.currencies[basketid].startblock) {
+
             // gather from start block if needed
             if (!this.markets[basketid]) {
               this.markets[basketid] = [];
 
-              let start = this.verus.currencies[basketid].startblock;
-              let end = this.verus.info.blocks;
-              if ((end - start) > maxhistory) {
-                start = (end - maxhistory);
+              let startBlock = this.verus.currencies[basketid].startblock;
+              let blockHeight = this.verus.info.blocks;
+              let start = startBlock;
+              let end = blockHeight;
+
+              // if launched on another chain, assume the start block is the first block on this chain
+              if (this.verus.nativecurrencyid !== this.verus.currencies[basketid].launchsystemid) {
+                startBlock = 1;
               }
               
+              if ((end - start) > maxhistory) { start = ((end - maxhistory) - ((end - maxhistory) % ticker_blocks)) + (startBlock % ticker_blocks); }
+              if (start > end) { continue; }
+
               let gatherStart = Date.now();
-              console.log("gathering market data for", basketid, "block", start, "to", this.verus.info.blocks);
-              // gather full tickers
+
+              this.log("gathering market data for", basketid, "block", start, "to", end);
+
+              // gather historical tickers
               while ((start + ticker_blocks) < end) {
-                let p = await this.calculateMarketData(basketid, start, (start+ticker_blocks), 1, true);
+                let p = await this.calculateMarketDataFromImports(basketid, start, blockHeight, ticker_blocks);
                 if (p && p.blocktime && p.start && p.end) {
-                  this.markets[basketid].push(p);
+                  // only add ticker if we had transfers, if not its empty
+                  if (p.totals && p.totals.volume && p.totals.volume[basketid]) {
+                    this.markets[basketid].push(p);
+                  } else if (this.markets[basketid].length > 0) {
+                    // update start postition on last
+                    let endIndex = (this.markets[basketid].length - 1)
+                    this.markets[basketid][endIndex].nextTickerStart = p.nextTickerStart;
+                  }
+                  start = p.nextTickerStart;
+                } else {
+                  start += ticker_blocks;
                 }
-                start += (ticker_blocks + 1);
               }
-              // last full ticker end position
-              this.lastTickerBlock = start;
-              console.log("gathering took", Date.now() - gatherStart, "ms, ended at block", this.lastTickerBlock);
+
+              this.log("gathering took", Date.now() - gatherStart, "ms, ended at block", (start - 1));
             }
 
             // gather ticker stats on-the-fly
-            if (this.lastTickerBlock < this.verus.info.blocks) {
-              let start = this.lastTickerBlock;
+            let last = this.markets[basketid].at(-1);
+            if (last) {
+              let start = last.nextTickerStart?last.nextTickerStart:last.start;
               let end = this.verus.info.blocks;
-              let last = this.markets[basketid].at(-1);
-              let newTicker = ((end - start) >= ticker_blocks);
+              if (start > end) { continue; }
               
-              //let tmp = await this.calculateMarketDataFromCurrencyState(basketid, start, end, 1, newTicker);
-              
-              let p = await this.calculateMarketData(basketid, start, end, 1, newTicker);
+              let p = await this.calculateMarketDataFromImports(basketid, start, end, ticker_blocks);
               if (p && p.blocktime && p.start && p.end) {
-                // if this is the end of currenct ticker
-                if (newTicker) {
-                  this.lastTickerBlock = end + 1;
-                  if (this.lastTickerPartial === true) {
-                    this.markets[basketid].pop();   // remove previous partial
+                // if this is the end of current ticker
+                if (p.nextTickerStart) {
+                  // only add ticker if we had transfers, not and empty ticker
+                  if (p.totals && p.totals.volume && p.totals.volume[basketid]) {
+                    if (last.partial === true) { this.markets[basketid].pop(); }
+                    this.markets[basketid].push(p);
+                    if (this.verbose > 0) {
+                      this.log("ticker complete", basketid, p.start, p.end, "new ticker start", p.nextTickerStart, "blockheight", this.verus.info.blocks);
+                    }
+                  } else {
+                    // advance last ticker forward ...
+                    last.nextTickerStart = p.nextTickerStart;
+                    if (this.verbose > 0) {
+                      this.log("ticker complete with no transfers", basketid, p.start, p.end, "new ticker start", p.nextTickerStart, "blockheight", this.verus.info.blocks);
+                    }
                   }
-                  this.markets[basketid].push(p);
-                  console.log("ticker complete", basketid, start, end);
-                  
-                } else if (last.start == start) {
-                  // existing partial
+
+                } else if (last.start === start) {
+                   // update pending transfers
                   await this.gatherPendingTransfers(basketid, p);
-                  this.markets[basketid].pop();   // remove previous partial
-                  this.markets[basketid].push(p); // push updated partial
-                  this.lastTickerPartial = true;
-                  console.log("updated partial ticker", basketid, start, end, "ticker blocks remaining", ticker_blocks - (end-start));
+                  
+                  p.partial = true;
+                  
+                  let endIndex = (this.markets[basketid].length - 1)
+                  this.markets[basketid][endIndex] = p; // updated partial
+                  if (this.verbose > 0) {
+                    this.log("updated partial ticker", basketid, start, end, "ticker blocks remaining", ticker_blocks - (end-start));
+                  }
 
                 } else {
                   // new partial ticker
+                  // update pending transfers
+                  await this.gatherPendingTransfers(basketid, p);
+                  
+                  p.partial = true;
+                  
+                  if (last.partial === true) { this.markets[basketid].pop(); }
                   this.markets[basketid].push(p);
-                  this.lastTickerPartial = true;
-                  console.log("new partial ticker", basketid, start, end, "ticker blocks remaining", ticker_blocks - (end-start));
-                }
-
-              } else {
-                if (newTicker) {
-                  this.lastTickerBlock = end + 1;
-                  console.log("ticker complete with no transfers", basketid, start, end);
+                  
+                  if (this.verbose > 0) {
+                    this.log("new partial ticker", basketid, p.start, p.end);
+                  }
                 }
               }
             }
-
-            // only keep 4 weeks of history
-            let oldestblocktime = (Date.now()/1000) - 2.628e+6;
-            while (this.markets[basketid][0].blocktime < oldestblocktime) {
-              this.markets[basketid].shift();
-            }
-            
-            //let slippage_data = await this.calculateSlippageData(basketid);
-            
           }
-
-        } else {
-          // no new blocks check pendingtransfers
-          let last = this.markets[basketid].at(-1);
-          await this.gatherPendingTransfers(basketid, last);
+          
+          // only keep max blocks of history
+          while (this.markets[basketid][0] && this.markets[basketid][0].end < (this.verus.info.blocks - maxhistory)) {
+            this.markets[basketid].shift();
+          }
+        
         }
       }
     }

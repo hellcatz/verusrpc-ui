@@ -1,7 +1,7 @@
-{% if not currency.isFailedLaunch %}
+{% if not currency.isFailedLaunch and not currency.isFractional %}
 <tr>
   <td>
-    <button type="button" class="btn btn-dark"><a href="/view/{{ currency.currencyid }}" class="link-underline link-underline-opacity-0">{{ currency.fullyqualifiedname | truncate: 32  }}</a></button>
+    <a href="/view/{{ currency.currencyid }}" class="link-underline link-underline-opacity-0">{{ currency.fullyqualifiedname | truncate: 32  }}</a>
   </td>
   <td class="w-100">
     {% if currency.isPBaaS %} 
@@ -12,7 +12,7 @@
       {% endif %}
     {% endif %}
     {% if currency.isNFT %}<i class="fa-solid fa-puzzle-piece"></i> NFT
-    {% elsif currency.isGateway %} <i class="fa-solid fa-money-bill-transfer"></i> Gateway
+    {% elsif currency.isGateway %} <i class="fas fa-bezier-curve"></i> Gateway
     {% elsif currency.isGatewayConverter %}<i class="fa-solid fa-bridge"></i> Converter
     {% elsif currency.isFractional %}
       {% if vars.currencies[name].bestcurrencystate.reservecurrencies.size > 1 %}
@@ -22,7 +22,15 @@
       {% endif %}
     {% elsif currency.isToken %} <i class="fa-solid fa-coins"></i> Token
     {% endif %}
-    
+    <!--
+    {% for i in vars.baskets %}
+    {% for n in i.currencynames %}
+    {% if n[0] == currency.currencyid %}
+    {{ i.fullyqualifiedname }}
+    {% endif %}
+    {% endfor %}
+    {% endfor %}
+    -->
     {% if currency.isPrelaunch %}<span class="badge text-bg-info"> <i class="fa-solid fa-arrow-down-up-across-line"></i> PRELAUNCH</span>{% endif %}
   </td>
   <td>

@@ -4,10 +4,14 @@
   "dai-dai":  "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM",
   "mkr-maker": "iCkKJuJScy4Z6NSDK7Mt42ZAB2NEnAE1o4",
   "link-chainlink": "iJczmut8fHgRvVxaNfEPm7SkgJLDFtPcrK",
-  "eurc-eurc": "iC5TQFrFXSYLQGkiZ8FYmZHFJzaRF5CYgE",
+  "euroc-euro-coin": "iC5TQFrFXSYLQGkiZ8FYmZHFJzaRF5CYgE",
   "wbtc-wrapped-bitcoin": "iS3NjE3XRYWoHRoovpLhFnbDraCq7NFStf",
   "usdt-tether": "i9oCSqKALwJtcv49xUKS2U2i79h1kX6NEY",
   "usdc-usd-coin": "i61cV2uicKSi1rSMQCBNQeSYC3UAi9GVzd",
   "trac-origintrail": "iEnQEjjozf1HZkqFT9U4NKnzz1iGZ7LbJ4",
-  "mars4-mars4": "iNtUUdjsqV34snGZJerAvPLaojo6tV9sfd"
+  "mars4-mars4": "iNtUUdjsqV34snGZJerAvPLaojo6tV9sfd",
+  "tbtc-tbtc": "iS8TfRPfVpKo5FVfSUzfHBQxo9KuzpnqLU",
+  "paxg-pax-gold": "iSYJ5L91bURKemiuALK1uBUXad3ZKCpDX7",
+  "xaut-tether-gold": "i7eFvyL44S2iWz9EZjd6HTaBioFqhALcdi",
+  "bat-basic-attention-token": "i9A4wBXUastzupqZwkich4zhCtziZS1JoF"
 }

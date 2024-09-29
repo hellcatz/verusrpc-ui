@@ -3,16 +3,25 @@
   <span class="m-2 pe-2 text-nowrap">Pair</span>
   <select id="pairA" class="form-select form-select-md me-2" aria-label="Small select example">
     <option value="{{ currency.currencyid }}" selected>{{ currency.fullyqualifiedname }}</option>
-  {% for bs in currency.bestcurrencystate.reservecurrencies %}
-  {%  assign baseName = currency.currencynames[bs.currencyid] %}
+    {% for bs in currency.bestcurrencystate.reservecurrencies %}
+    {%  assign baseName = currency.currencynames[bs.currencyid] %}
     <option value="{{bs.currencyid}}">{{baseName}}</option>
-  {% endfor %}
+    {% endfor %}
   </select>
   <button id="chart-btn-swap"type="button" class="btn btn-secondary me-2"><i class="fa-solid fa-right-left"></i></button>
-  <select id="pairB" class="form-select form-select-md me-2" aria-label="Small select example">
+  <select id="pairB" class="form-select form-select-md me-2">
+  {% for bs in currency.bestcurrencystate.reservecurrencies %}
+  {% if bs.currencyid == "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM" %}
+  {%  assign baseName = currency.currencynames[bs.currencyid] %}
+  <option value="{{bs.currencyid}}" selected>{{baseName}}</option>
+  {% endif %}
+  {% endfor %}
   {% for bs in currency.bestcurrencystate.reservecurrencies %}
   {%  assign baseName = currency.currencynames[bs.currencyid] %}
+  {% if bs.currencyid != "iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM" %}
+    {%  assign baseName = currency.currencynames[bs.currencyid] %}
     <option value="{{bs.currencyid}}">{{baseName}}</option>
+    {% endif %}
   {% endfor %}
     <option value="{{ currency.currencyid }}">{{ currency.fullyqualifiedname }}</option>
   </select>
@@ -114,7 +123,7 @@ var valueAxis = mainPanel.yAxes.push(am5xy.ValueAxis.new(root, {
 var dateAxis = mainPanel.xAxes.push(am5xy.GaplessDateAxis.new(root, {
   baseInterval: {
     timeUnit: "minute",
-    count: 5
+    count: 1
   },
   renderer: am5xy.AxisRendererX.new(root, {}),
   tooltip: am5.Tooltip.new(root, {})
@@ -227,7 +236,7 @@ stockChart.toolsContainer.children.push(scrollbar);
 var sbDateAxis = scrollbar.chart.xAxes.push(am5xy.GaplessDateAxis.new(root, {
   baseInterval: {
     timeUnit: "minute",
-    count: 5
+    count: 1
   },
   renderer: am5xy.AxisRendererX.new(root, {})
 }));
@@ -330,8 +339,11 @@ let getChartData = (basketid, currencyid, quoteid) => {
     getChartData("{{currency.currencyid}}", pairA, pairB);
   });
 
+  let pairA = $("#pairA").val();
+  let pairB = $("#pairB").val();
+
   // initial chart data is Bridge.vETH priced in DAI.vETH
-  getChartData("{{currency.currencyid}}","{{currency.currencyid}}","iGBs4DWztRNvNEJBt4mqHszLxfKTNHTkhM");
+  getChartData("{{currency.currencyid}}",pairA,pairB);
 
 }); // end am5.ready()
 

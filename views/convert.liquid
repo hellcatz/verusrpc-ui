@@ -64,8 +64,11 @@
               {% if reverse_convert %}
               <option value="{{ reverse_convert.convertto }}" selected>{{ vars.currencynames[reverse_convert.convertto] }}</option>
               {% else %}
+              <option value="{{vars.coin}}" selected>{{vars.currencynames[vars.coin]}}</option>
               {% for coin in vars.coins %}
+              {% if coin != vars.coin %}
               <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
+              {% endif %}
               {% endfor %}
               {% endif %}
             </select>
@@ -100,14 +103,33 @@
               <option value=""> </option>
               {% for c in vars.currencies %}
               {% if not c[1].isFailedLaunch %}
-              {% if c[1].isFractional and c[1].currencies.length > 1 and c[1].startblock < vars.info.blocks and c[0] != estimate_via %}
-              <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
+              {% if c[1].isFractional and c[1].currencies.length > 1 and c[0] != estimate_via %}
+              <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }} {% if c[1].startblock > vars.info.blocks %}(Pre-Convert){% endif %}</option>
               {% endif %}
               {% endif %}
               {% endfor %}
             </select>
+            <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Export To</span>
+            <select name="exportto0" id="exportto0" class="form-select" aria-label="SelectExportTo">
+              <option value=""> </option>
+              {% for c in vars.currencies %}
+              {% if c[0] != vars.coin %}
+              {% if c[1].isGateway or c[1].isPBaaS %}
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
+              {% endif %}
+              {% endif %}
+              {% endfor %}
+            </select>
+            <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" value="true" name="preconvert0" id="preconvert0">
+              <label class="form-check-label" for="preconvert0">
+                Pre-Convert?
+              </label>
+            </div>
+            </span>
           </div>
-        </div>
+        </div>  
       </div>
       
       <div id="additionalToUsers" class="alert alert-secondary mb-2 pb-1 d-none">
@@ -356,6 +378,25 @@ function addToUserInput() {
               {% endif %}
               {% endfor %}
             </select>
+            <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Export To</span>
+            <select name="exportto`+i+`" id="exportto`+i+`" class="form-select" aria-label="SelectExportTo">
+              <option value=""> </option>
+              {% for c in vars.currencies %}
+              {% if c[0] != vars.coin %}
+              {% if c[1].isGateway or c[1].isPBaaS %}
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
+              {% endif %}
+              {% endif %}
+              {% endfor %}
+            </select>
+            <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" value="true" name="preconvert`+i+`" id="preconvert`+i+`">
+              <label class="form-check-label" for="preconvert`+i+`">
+                Pre-Convert?
+              </label>
+            </div>
+            </span>
           </div>
         </div>
       </div>

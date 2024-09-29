@@ -5,12 +5,12 @@ const bp = require('body-parser');
 const jsonParser = bp.json();
 const urlencodedParser = bp.urlencoded({ extended: false });
 
-var config = undefined;
+const config = require('./config.json');
+
 var rpc = undefined;
 
-async function init(vconfig, vrpc)
+async function init(vrpc)
 {
-  config = vconfig;
   rpc = vrpc;
 }
 
@@ -76,7 +76,17 @@ async function getConversionResult(req,res) {
       }
   }
 }
-async function clearConversionResult(req,res) {
+async function clearConversionResult(req,res) {  
+  if (!req.params.uid) {
+    // clear all successfull
+    let result = rpc.remove_conversion_by_success();
+    if (result === true) {
+      res.status(200).type('application/json').send(true);
+    } else {
+      res.status(500).type('application/json').send({error: 500});
+    }
+    return;
+  }
   let result = rpc.remove_conversion(req.params.uid);
   if (result === true) {
       res.status(200).type('application/json').send(true);
@@ -197,8 +207,37 @@ async function getTransaction(req,res) {
     }
 }
 
+async function findBaskets(req,res) {
+    let result = await rpc.findBaskets(req.params.id);
+    if (result != undefined) {
+        res.status(200).type('application/json').send(result);
+    } else {
+        res.status(500).type('application/json').send({error: 500});
+    }
+}
 
+async function getBaskets(req,res) {
+    let result = await rpc.getBaskets();
+    if (result != undefined) {
+        res.status(200).type('application/json').send(result);
+    } else {
+        res.status(500).type('application/json').send({error: 500});
+    }
+}
 
+async function getBasketPrices(req,res) {
+  
+    let amount = 1;
+    if (req.params.amount && typeof req.params.amount == "string") {
+      amount = parseFloat(req.params.amount);
+    }
+    let result = await rpc.getBasketPrices(req.params.baseid, req.params.quoteid, amount);
+    if (result != undefined) {
+        res.status(200).type('application/json').send(result);
+    } else {
+        res.status(500).type('application/json').send({error: 500});
+    }
+}
 
 // HTML helpers
 
@@ -218,13 +257,15 @@ async function renderViewCurrency(req,res) {
   const tvar = await rpc.getTemplateVars(true);
   const currency = await rpc.getCurrency(req.params.currencyid, true);
   const transfers = await rpc.chartly.getLatestTransfers(req.params.currencyid);
+  const baskets = await rpc.findBaskets(req.params.currencyid);
   if (tvar != undefined) {
     res.render('viewcurrency', {
         title: 'View Currency',
         vars: tvar,
         currency: currency,
         transfers: transfers,
-        basketid: req.params.currencyid
+        basketid: req.params.currencyid,
+        baskets: baskets
     })
   } else {
       res.status(500).type('application/json').send({error: 500});
@@ -302,11 +343,22 @@ async function handleSendCurrency(req,res) {
     for (let i=0; i<100; i++)
     {
       let toAddress = req.body["toAddress" + i];
-      if (!toAddress) {
-        break;
+      console.log(toAddress);
+      if (!toAddress || toAddress.length == 0) {
+        // default to from address
+        toAddress = req.body.fromAddress;
+        if (!toAddress) {
+          break;
+        }
       }
 
       let amount = req.body["amount" + i];
+      if (!amount || amount === 0) {
+        break;
+      }
+      
+      console.log(toAddress);
+      
       let currency = req.body["currency" + i];
       let convertto = req.body["convertto" + i];
       let preconvert = req.body["preconvert" + i];
@@ -366,6 +418,9 @@ async function handleSendCurrency(req,res) {
             invalid.push("via"+i);
           }
         }
+        if (preconvert) {
+          param.preconvert = true;
+        }
         if (exportto && via != " ") {
           if (exportto.length > 0) {
             param.exportto = exportto;
@@ -375,10 +430,10 @@ async function handleSendCurrency(req,res) {
           }
         }
         if (needsEstimate) {
-          let estimate = await rpc.estimateConversion(param.amount, param.currency, param.convertto, param.via, false);
+          let estimate = await rpc.estimateConversion(param.amount, param.currency, param.convertto, param.via, param.preconvert, false);
           if (estimate && estimate.estimatedcurrencyout) {
             estimates.push(estimate.estimatedcurrencyout);
-            console.log("conversion estimate", param.amount, param.currency, "to", estimate.estimatedcurrencyout, param.convertto, "via", param.via);
+            console.log("conversion estimate", param.amount, param.currency, "to", estimate.estimatedcurrencyout, param.convertto, "via", param.via, "preconvert", param.preconvert);
           } else {
             invalid.push("currency"+i);
             invalid.push("convertto"+i);
@@ -415,8 +470,11 @@ async function handleSendCurrency(req,res) {
       } else {
         res.status(500).type('application/json').send(result);
       }
+    } else if (!req.body.fromAddress) {
+      let result = { invalid: ["fromAddress"] };
+      res.status(500).type('application/json').send(result);
     } else {
-      let result = { invalid: ["toAddress0"] };
+      let result = { invalid: ["amount0"] };
       res.status(500).type('application/json').send(result);
     }
 }
@@ -439,59 +497,70 @@ router.get('/view/:currencyid', (req, res) => {
 
 
 // WALLET pages
+if (!config.nowallet) {
+  router.get('/receive', (req, res) => {
+      renderReceive(req, res);
+  })
 
-router.get('/receive', (req, res) => {
-    renderReceive(req, res);
-})
+  router.get('/send', (req, res) => {
+    renderSendCurrency(req, res);
+  })
 
-router.get('/send', (req, res) => {
-  renderSendCurrency(req, res);
-})
+  router.post('/send', urlencodedParser, (req, res) => {
+    handleSendCurrency(req, res);
+  })
 
-router.post('/send', urlencodedParser, (req, res) => {
-  handleSendCurrency(req, res);
-})
+  router.get('/convert/reverse/:uid', (req, res) => {
+    renderConvertCurrency(req, res);
+  })
+  router.get('/convert', (req, res) => {
+    renderConvertCurrency(req, res);
+  })
+  router.post('/convert', urlencodedParser, (req, res) => {
+    handleSendCurrency(req, res);
+  })
 
-router.get('/convert/reverse/:uid', (req, res) => {
-  renderConvertCurrency(req, res);
-})
-router.get('/convert', (req, res) => {
-  renderConvertCurrency(req, res);
-})
-router.post('/convert', urlencodedParser, (req, res) => {
-  handleSendCurrency(req, res);
-})
-
-router.get('/exportto', (req, res) => {
-  renderExportToCurrency(req, res);
-})
-router.post('/exportto', urlencodedParser, (req, res) => {
-  handleSendCurrency(req, res);
-})
+  router.get('/exportto', (req, res) => {
+    renderExportToCurrency(req, res);
+  })
+  router.post('/exportto', urlencodedParser, (req, res) => {
+    handleSendCurrency(req, res);
+  })
+}
 
 
 // API
-router.get('/api/conversions', (req, res) => {
-    getConversionsList(req, res);
-});
-router.get('/api/conversion/result/:uid', (req, res) => {
-    getConversionResult(req, res);
-});
-router.get('/api/conversion/clear/:uid', (req, res) => {
-    clearConversionResult(req, res);
-});
-router.get('/api/opid/result/:opid', (req, res) => {
-    getOperationResult(req, res);
-});
-router.get('/api/opid/clear/:opid', (req, res) => {
-    clearOperationResult(req, res);
-});
-router.get('/api/addresses', (req, res) => {
-    getAddresses(req, res);
-});
-router.get('/api/balances', (req, res) => {
-    getBalances(req, res);
-});
+if (!config.nowallet) {
+  router.get('/api/conversions', (req, res) => {
+      getConversionsList(req, res);
+  });
+  router.get('/api/conversion/result/:uid', (req, res) => {
+      getConversionResult(req, res);
+  });
+  router.get('/api/conversion/clear/:uid', (req, res) => {
+      clearConversionResult(req, res);
+  });
+  router.get('/api/conversion/clear', (req, res) => {
+      clearConversionResult(req, res);
+  });
+  router.get('/api/monitor/txid/:txid', (req, res) => {
+      rpc.add_txid(req.params.txid);
+      res.status(200).type('application/json').send(true);
+  });
+  router.get('/api/opid/result/:opid', (req, res) => {
+      getOperationResult(req, res);
+  });
+  router.get('/api/opid/clear/:opid', (req, res) => {
+      clearOperationResult(req, res);
+  });
+  router.get('/api/addresses', (req, res) => {
+      getAddresses(req, res);
+  });
+  router.get('/api/balances', (req, res) => {
+      getBalances(req, res);
+  });
+}
+
 router.get('/api/balance/:address', (req, res) => {
     getBalance(req, res);
 });
@@ -513,17 +582,26 @@ router.get('/api/info', (req, res) => {
 router.get('/api/mininginfo', (req, res) => {
     getMiningInfo(req, res);
 });
-router.get('/api/monitor/txid/:txid', (req, res) => {
-    rpc.add_txid(req.params.txid);
-    res.status(200).type('application/json').send(true);
-});
 router.get('/api/tickers', (req, res) => {
     res.status(200).type('application/json').send(rpc.tickers);
 });
-
 router.get('/api/transaction/:txid', (req, res) => {
     getTransaction(req, res);
 });
+router.get('/api/baskets', (req, res) => {
+    getBaskets(req, res);
+});
+router.get('/api/baskets/:baseid', (req, res) => {
+    findBaskets(req, res);
+});
+router.get('/api/prices/:baseid/:quoteid', (req, res) => {
+    getBasketPrices(req, res);
+});
+router.get('/api/prices/:baseid/:quoteid/:amount', (req, res) => {
+    getBasketPrices(req, res);
+});
+
+
 
 // DIRECT RPC (Dev Only, temp for testing)
 /*

@@ -43,22 +43,33 @@
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:6rem;">Amount</span>
             <input name="amount0" id="amount0" type="number" class="form-control" aria-describedby="basic-addon1" step="0.00000001" min="0">
             <select name="currency0" id="currency0" class="form-select" aria-label="SelectCurrency">
-              {% for g in vars.currencies %}
-              {% if g[1].isGateway %}
-                <option value="{{g[0]}}">{{ vars.currencynames[g[0]] }}</option>
-                {% for coin in vars.coins %}
-                {% if not vars.currencies[coin].isGatewayConverter and g[1].currencyid == vars.currencies[coin].parent %}
-                <option value="{{coin}}">{{ vars.currencynames[coin] }}</option>
-                {% endif %}
-                {% endfor %}
+              <option value="{{vars.coin}}" selected>{{vars.currencynames[vars.coin]}}</option>
+              {% for coin in vars.coins %}
+              {% if coin != vars.coin %}
+              <option value="{{coin}}">{{vars.currencynames[coin]}}</option>
               {% endif %}
               {% endfor %}
             </select>
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Export To</span>
             <select name="exportto0" id="exportto0" class="form-select" aria-label="SelectExportTo">
+              <option value=""> </option>
               {% for c in vars.currencies %}
-              {% if c[1].isGateway %}
-              <option value="{{c[0]}}">{{ vars.currencynames[c[0]] }}</option>
+              {% if c[0] != vars.coin %}
+              {% if c[1].isGateway or c[1].isPBaaS %}
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
+              {% endif %}
+              {% endif %}
+              {% endfor %}
+            </select>
+            <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Fee Currency</span>
+            <select name="feecurrency0" id="feecurrency0" class="form-select" aria-label="SelectFeeCurrency">
+              <option value="" selected> </option>
+              <option value="{{vars.coin}}">{{vars.currencynames[vars.coin]}}</option>
+              {% for c in vars.currencies %}
+              {% if c[0] != vars.coin %}
+              {% if c[1].isGateway or c[1].isPBaaS %}
+              <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
+              {% endif %}
               {% endif %}
               {% endfor %}
             </select>
@@ -276,9 +287,12 @@ function addToUserInput() {
             </select>
             <span class="input-group-text justify-content-end" id="basic-addon1" style="min-width:7rem;">Export To</span>
             <select name="exportto`+i+`" id="exportto`+i+`" class="form-select" aria-label="SelectExportTo">
+              <option value=""> </option>
               {% for c in vars.currencies %}
+              {% if c[0] != vars.coin %}
               {% if c[1].isGateway or c[1].isPBaaS %}
               <option value="{{c[0]}}">{{vars.currencynames[c[0]]}}</option>
+              {% endif %}
               {% endif %}
               {% endfor %}
             </select>

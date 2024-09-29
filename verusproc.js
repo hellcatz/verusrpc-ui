@@ -9,7 +9,9 @@ var plugins = {}
 
 // scans verusd for balances, and things ...
 class VerusPROC {
-    constructor(rpc, api, verbose=0) {
+    constructor(config, rpc, api, verbose=0) {
+        this.config = config;
+        
         this.verus = rpc;
         this.api = api;
         this.verbose = verbose;
@@ -43,7 +45,7 @@ class VerusPROC {
     
     async getCoinPaprikaTickers() {
       // if currency id is known currency on coinpaprika
-      let j = undefined;
+      let j = undefined; 
       let r = await this.getHttpsResponse("https://api.coinpaprika.com/v1/tickers?quotes=BTC,USD");
       try {
         j = JSON.parse(r)
@@ -73,6 +75,7 @@ class VerusPROC {
           //c.closedby = undefined;
         }
 
+        /*
         // check to see if this conversion is the reverse of a previous conversion
         let matches = this.verus.get_conversion_by_details(c.convertto, c.currency, c.destination, c.amount, 0.5);
         if (matches.length > 0) {
@@ -96,13 +99,14 @@ class VerusPROC {
             }
           }
         }
+        */
 
         // check conversions for progress
         if (c.status !== "closed") {
           // do some estimates
           if (c.status == "success" || c.estimate) {
             // estimate converting back
-            let e = await this.verus.estimateConversion(c.received||c.estimate, c.convertto, c.currency, c.via, false);
+            let e = await this.verus.estimateConversion(c.received||c.estimate, c.convertto, c.currency, c.via, false, false);
             if (e) {
               c.estimate_reverse = e.estimatedcurrencyout;
             }
@@ -133,9 +137,44 @@ class VerusPROC {
       }
     }
     
+    async findCoinPaprikaTickerId(market, currencyid) {
+      let r = undefined;
+      let cid = this.verus.currencyids[currencyid]?this.verus.currencyids[currencyid]:currencyid;
+      let nid = (this.verus.currencynames[currencyid]?this.verus.currencynames[currencyid]:currencyid).toLowerCase().split('.')[0];
+      for (let i in market) {
+          let ticker = market[i];
+          if (coinpaprikaids[ticker.id] == cid) {
+            r = ticker;
+            break;
+          }
+      }
+      if (!r) {
+        for (let i in market) {
+          let ticker = market[i];
+          if (ticker.symbol && ticker.symbol.toLowerCase().indexOf(nid) == 0 && nid.length == ticker.symbol.length) {
+              r = ticker;
+              break;
+            }
+            if (ticker.symbol && nid.indexOf(ticker.symbol.toLowerCase()) == 0 && nid.length == ticker.symbol.length) {
+              r = ticker;
+              break;
+            }
+        }
+        if (r) {
+          console.log("FOUND!", r.id, r.symbol, cid, nid);
+        }
+      }
+      return r;
+    }
+    
     async cacheCoinPaprika() {
       let market = await this.getCoinPaprikaTickers();
       if (market) {
+        /*
+        for (let cid in this.verus.currencies) {
+          let tickerid = this.findCoinPaprikaTickerId(market, cid);
+        }
+        */
         for (let i in market) {
           let ticker = market[i];
           if (coinpaprikaids[ticker.id]) {
@@ -166,19 +205,28 @@ class VerusPROC {
       // level 0 = do not use cache
       // level 1 = use some cache
       // level 2 = use more cache
-      
+
       // get chain info
       this.verus.mininginfo = await this.verus.getMiningInfo(level > 1);
-      
+
       // cache nextblockreward
       this.verus.nextblockreward = await this.verus.getNextBlockReward(level > 2);
-      
-      //this.verus.generated = await this.verus.getUnspentBlockRewards();
-      //console.log(this.verus.generated);
 
-      // always update operation ids and monitor transactions
-      await this.verus.listOperationIDs(level > 2);
-      await this.verus.monitorTransactionIDs(level > 2);
+      // sync currency states
+      if (level < 2) {
+        await this.verus.listCurrencies([{systemtype:"pbaas"}], false);
+        await this.verus.listCurrencies([{systemtype:"gateway"}], false);
+        await this.verus.listCurrencies([], false);
+        await this.verus.listCurrencies([{systemtype:"imported"}], false);
+      }
+
+      if (!this.config.nowallet) {
+        // always update operation ids and monitor transactions
+        await this.verus.listOperationIDs(level > 2);
+        await this.verus.monitorTransactionIDs(level > 2);
+        //this.verus.generated = await this.verus.getUnspentBlockRewards();
+        //console.log(this.verus.generated);
+      }
     }
     
     async runProc(blockChanged) {
@@ -246,7 +294,7 @@ class VerusPROC {
         }
         
         // only update balances if the block has changed
-        if (blockChanged) {
+        if (!this.config.nowallet && blockChanged) {
           this.updateBalances();
         }
 
@@ -288,7 +336,7 @@ class VerusPROC {
       });
       for (let c in ploader) {
         let p = ploader[c];
-        plugins[c] = new p(this.verus, this.api, 1);
+        plugins[c] = new p(this.config, this.verus, this.api, this.router, this.verbose);
         await plugins[c].init();
       }
     }

@@ -44,7 +44,11 @@
 
 <td>
 {% if address and address.size > 1 %}
-<a href="{{vars.explorers[vars.coin].address}}/{{transfer.destination.address}}" target="_blank">{{transfer.destination.address | truncate: 9}}{{transfer.destination.address | slice: -6, 6 }}</a>
+  {% if transfer.destination.exportETH %}
+    <a href="https://etherscan.io/address/{{transfer.destination.address}}" target="_blank">{{transfer.destination.address | truncate: 9}}{{transfer.destination.address | slice: -6, 6 }}</a>
+  {% else %}
+    <a href="{{vars.explorers[vars.coin].address}}/{{transfer.destination.address}}" target="_blank">{{transfer.destination.address | truncate: 9}}{{transfer.destination.address | slice: -6, 6 }}</a>
+  {% endif %}  
 {% else %}
 <a href="/transfers/{{basketid}}/{{transfer.destination.address}}/100" target="_blank">{{transfer.destination.address | truncate: 9}}{{transfer.destination.address | slice: -6, 6 }}</a>
 {% endif %}
@@ -65,4 +69,4 @@
 </small>
 </td>
 </tr>
-<!--<tr><td colspan="7"><pre>{{ transfer | json: 2}}</pre></td></tr>-->
+<!-- <tr><td colspan="7"><pre>{{ transfer | json: 2}}</pre></td></tr> -->

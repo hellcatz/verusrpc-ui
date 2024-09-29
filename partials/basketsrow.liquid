@@ -1,0 +1,15 @@
+<tr>
+  <th scope="row">
+    {{ id }}
+  </th>
+  <td>
+    <a href="/view/{{ basket.currencyid }}" class="link-underline link-underline-opacity-0">{{ basket.fullyqualifiedname | truncate: 32  }}</a>
+  </td>
+  <td class="w-100">  
+  {% if basket.bestcurrencystate.reservecurrencies[0].reserves < 500 %}<span class="badge text-bg-danger"> <i class="fa-solid fa-warning"></i> LOW TVL</span>{% endif %}
+  {% if basket.isPrelaunch %}<span class="badge text-bg-secondary"> <i class="fa-solid fa-rocket"></i> PRE-LAUNCH</span>{% endif %}
+  <!--{% for bs in basket.bestcurrencystate.reservecurrencies %}
+  <span class="badge text-bg-dark"><small>{{ bs.reserves | round: 1 }} {{ basket.currencynames[bs.currencyid] }}</small></span>
+  {% endfor %}-->
+  </td>
+</tr>

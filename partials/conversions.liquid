@@ -6,6 +6,7 @@
     <button type="button" class="btn-close px-2 py-0" data-bs-dismiss="offcanvas" aria-label="Close"></button>
   </div>
   <div class="offcanvas-body mx-0">
+    <a class="btn btn-secondary clear-success bg-dark-subtle" href="/api/conversion/clear" target="_blank">Clear All</a>
     <div class="accordion accordion-flush" id="accordionConversions">
       {% assign rlist = vars.conversions | reverse %}
       {% for c in rlist %}
@@ -26,7 +27,31 @@ $(document).ready(function() {
         location.reload();
       },
       error: function (err) {
-        alert("Fatal: " + err);
+        let rsp = err.responseText;
+        if (rsp) {
+          alert("Fatal: " + rsp);
+        } else {
+          alert("Fatal: " + JSON.stringify(err));
+        }
+      }
+    });
+  });
+  $('.clear-success').on('click', function (e) {
+    e.preventDefault();
+    let request=$.ajax({
+      url: $(this).attr("href"),
+      type: "GET",
+      success: function (rsp) {
+        alert("Success: " + rsp);
+        location.reload();
+      },
+      error: function (err) {
+        let rsp = err.responseText;
+        if (rsp) {
+          alert("Fatal: " + rsp);
+        } else {
+          alert("Fatal: " + JSON.stringify(err));
+        }
       }
     });
   });

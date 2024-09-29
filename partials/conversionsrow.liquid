@@ -41,6 +41,10 @@
    {{ ctname }}
   </span>
   {% endif %}
+  
+  {% if c.via %}
+  <span class="badge badge-secondary bg-dark-subtle text-bg-dark rounded-pill border border-light p-2 px-3 ms-2">via {{ vars.currencynames[c.via] }}</span>
+  {% endif %}
 
   {% assign gainloss = 0 %} 
   {% if c.status == "success" %}
@@ -88,9 +92,8 @@
     {% if c.spentTxId2 %}
     <a class="btn btn-secondary position-relative top-0 start-0" href="/api/transaction/{{c.spentTxId2}}" target="_blank">Output TXID</a>
     {% endif %}
-    {% if c.status != "pending" %}
+    
     <a class="btn btn-secondary clear-uid position-relative top-0 start-0 bg-dark-subtle" href="/api/conversion/clear/{{c.uid}}" target="_blank">CLEAR</a>
-    {% endif %}
     </div>
     <pre>{{ c | json: 2 }}</pre>
   </div>

@@ -217,7 +217,7 @@ class VerusRPC {
         }
       }
       // get the estimate now
-      let e = await this.estimateConversion(amount, currency, convertto, via, false);
+      let e = await this.estimateConversion(amount, currency, convertto, via, false, false);
       if (e) {
         c.estimate = e.estimatedcurrencyout;
       } else {
@@ -267,6 +267,20 @@ class VerusRPC {
       while (i < this.conversions.length) {
         let c = this.conversions[i];
         if (c.txid == txid) {
+          this.conversions.splice(i, 1);
+          f = true;
+        } else {
+          ++i;
+        }
+      }
+      return f;
+    }
+    remove_conversion_by_success() {
+      let f = false;
+      let i = 0;
+      while (i < this.conversions.length) {
+        let c = this.conversions[i];
+        if (c.status == "success") {
           this.conversions.splice(i, 1);
           f = true;
         } else {
@@ -489,6 +503,8 @@ class VerusRPC {
       const opid_counts = {};
       const keys = Object.keys(opids);
 
+      const baskets = await this.getBaskets();
+
       for (let key in keys) {
         opid_counts[keys[key]] = Object.keys(opids[keys[key]]).length;
       }
@@ -502,6 +518,8 @@ class VerusRPC {
         
         currencyids: this.currencyids,
         currencynames: this.currencynames,
+        
+        baskets: baskets,
         
         currencies: this.currencies,
         conversions: this.conversions,
@@ -626,7 +644,7 @@ class VerusRPC {
                           for(let i in cmatches) {
                             let conversion = cmatches[i];
                             let cid = this.getCurrencyIdFromName(conversion.convertto);
-                            if (cid && cid === destcurrencyid && (!conversion.spentTxId || conversion.spentTxId != o.spentTxId)) {
+                            if (cid && cid === destcurrencyid && conversion.spentTxId != o.spentTxId) {
                               console.log("conversion forward progress", o.spentTxId);
                               conversion.spentTxId = o.spentTxId; // monitor for finalizeexport spentTxId
                               conversion.spentTxId2 = undefined;  // force a new lookup
@@ -867,21 +885,25 @@ class VerusRPC {
         let c = this.currencies[i];
         if (c && c.bestcurrencystate && c.bestcurrencystate.reservecurrencies && !c.isFailedLaunch && !c.isPrelaunch) {
           let count = 0;
+          if (params.indexOf(c.currencyid) > -1) {
+            count++;
+          }
           for (let z in c.bestcurrencystate.reservecurrencies) {
             let r = c.bestcurrencystate.reservecurrencies[z];
             if (params.indexOf(r.currencyid) > -1) {
               count++;
             }
           }
-          if (count == params.length) {
+          if (count >= params.length) {
             found.push(c.currencyid);
           }
         }
       }
+
       return found;
     }
-    
-    async estimateConversion(amount, from, to, via, useCache) {
+
+    async estimateConversion(amount, from, to, via, preconvert, useCache) {
       let r = undefined;
       let params = {
         "amount":amount,
@@ -890,6 +912,9 @@ class VerusRPC {
       };
       if (via) {
         params.via = via;
+      }
+      if (preconvert) {        
+        params.preconvert = true;
       }
       let rsp = await this.request("estimateconversion", [params], useCache);
       if (rsp && !rsp.error) {
@@ -1044,7 +1069,9 @@ class VerusRPC {
                   r.invalid.push("error");
                   r.error = rsp2.error;
                 }
+
               } else {
+                if (!r.fees) { r.fees = {}; }
                 if (fee && fee > 0) {
                   r.fees[this.nativecurrencyid] = fee;
                 } else {
@@ -1058,13 +1085,16 @@ class VerusRPC {
               r.error = rsp.error;
             }
           }
+
         } else {
+          if (!r.fees) { r.fees = {}; }
           if (fee && fee > 0) {
             r.fees[this.nativecurrencyid] = fee;
           } else {
             r.fees[this.nativecurrencyid] = 0.0001;
           }
         }
+
         r.verify = true;
         r.method = rpcMethod;
         r.params = params;
@@ -1132,30 +1162,53 @@ class VerusRPC {
       return data;
     }
 
-    getReserveCurrencyPrice(state, baseid, quoteid) {
+    getReserveCurrencyPrice(state, baseid, quoteid, amount=1) {
       let baseReserves = 0;
+      let baseWeight = 1;
       let quoteReserves = 0;
+      let quoteWeight = 1;      
+      let priceinreserve = 1;
+
       let cstate = state.currencystate;
-      if (!cstate && state.importnotarization && state.importnotarization.currencystate) { cstate = state.importnotarization.currencystate; }
       if (!cstate && state.bestcurrencystate) { cstate = state.bestcurrencystate; }
+      if (!cstate && state.importnotarization && state.importnotarization.currencystate) { cstate = state.importnotarization.currencystate; }
+
+      // check for reserve price
       for (let i in cstate.reservecurrencies) {
         let c = cstate.reservecurrencies[i];
         if (c.currencyid == baseid) {
           baseReserves = c.reserves;
+          baseWeight = c.weight;
+          priceinreserve = c.priceinreserve;
         }
         if (c.currencyid == quoteid) {
           quoteReserves = c.reserves;
+          quoteWeight = c.weight;
+          priceinreserve = c.priceinreserve;
         }
       }
+
+      // if conversion thru basket
       if (baseReserves > 0 && quoteReserves > 0) {
-        return quoteReserves / baseReserves;
-      }      
+        return ((quoteReserves / baseReserves) * (baseWeight / quoteWeight)) * amount;
+      }
+
+      // if converting from/to basket
+      if (cstate.currencyid == baseid) {
+        return priceinreserve * amount;
+      }
+      if (cstate.currencyid == quoteid) {
+        return (1 / priceinreserve) * amount;
+      }
+
       return 0;
     }
     
-    async getCurrencyState(currencyid, startBlock, endBlock, step=1) {
+    async getCurrencyState(currencyid, startBlock, endBlock, step=1, quoteid=undefined) {
       let r = undefined;
-      let d = await this.request("getcurrencystate", [currencyid, [startBlock, endBlock, step].join(",")], true);
+      let params = [currencyid, [startBlock, endBlock, step].join(",")];
+      if (quoteid) { params.push(quoteid); }
+      let d = await this.request("getcurrencystate", params, true);
       if (d && !d.error && d.result) {
         r = d.result;
       }
@@ -1174,6 +1227,7 @@ class VerusRPC {
     async parseCurrency(d) {
       let r = undefined;
       if (d && !d.error) {
+        let systemid = d.result.systemid;
         let currencyid = d.result.currencyid;
         let name = d.result.fullyqualifiedname;
 
@@ -1249,8 +1303,8 @@ class VerusRPC {
       return r;
     }
     
-    async listCurrencies(useCache=undefined) {
-      let rsp = await this.request("listcurrencies", [], useCache);
+    async listCurrencies(params=[], useCache=undefined) {
+      let rsp = await this.request("listcurrencies", params, useCache);
       if (rsp && !rsp.error) {
         let list = rsp.result;
         for (let i in list) {
@@ -1268,15 +1322,13 @@ class VerusRPC {
             if (!this.currencies[currencyid] || prelaunch) {
               let currency = await this.getCurrency(currencyid, (prelaunch?false:useCache));
               if (currency) {
-                if (currency.isGateway) {
-                  let parentid = currency.currencyid;
-                  let l = await this.request("listcurrencies", [{fromsystem:parentid}], useCache);
-                  if (l && !l.error && l.result) {
-                    for (let r in l.result) {
-                      if (l.result[r] && l.result[r].currencydefinition && l.result[r].currencydefinition.currencyid) {
-                        let currencyid2 = l.result[r].currencydefinition.currencyid;
-                        let currency2 = await this.getCurrency(currencyid2, useCache);
-                      }
+                let parentid = currency.currencyid;
+                let l = await this.request("listcurrencies", [{fromsystem:parentid}], useCache);
+                if (l && !l.error && l.result) {
+                  for (let r in l.result) {
+                    if (l.result[r] && l.result[r].currencydefinition && l.result[r].currencydefinition.currencyid) {
+                      let currencyid2 = l.result[r].currencydefinition.currencyid;
+                      let currency2 = await this.getCurrency(currencyid2, useCache);
                     }
                   }
                 }
@@ -1290,6 +1342,76 @@ class VerusRPC {
       }
     }
     
+    isBasket(currencyid) {
+      let c = this.currencies[currencyid];
+      if (c && c.bestcurrencystate && c.bestcurrencystate.reservecurrencies && !c.isFailedLaunch) {
+        return true;
+      }
+      return false;
+    }
+    
+    async getBasketPrices(currencyid, quoteid=undefined, amount=undefined) {
+      let cid = this.currencyids[currencyid]?this.currencyids[currencyid]:currencyid;
+      let qid = this.currencyids[quoteid]?this.currencyids[quoteid]:quoteid;
+      let baskets = this.getConverters([cid, qid]);
+
+      let r = {
+        baseid: cid,
+        quoteid: qid,
+        prices: []
+      };
+
+      for (let b in baskets) {
+        let via = baskets[b];
+        let price = this.getReserveCurrencyPrice(this.currencies[via], cid, qid, amount);
+        let p = {
+          via: via,
+          price: price
+        }
+        r.prices.push(p);
+      }
+
+      r.prices.sort(function(a, b){
+        return b.price - a.price;
+      });
+
+      return r;
+    }
+    
+    async findBaskets(currencyid) {
+      let r = [];
+      for (let id in this.currencies) {
+        let c = this.currencies[id];
+        if (c.bestcurrencystate && c.bestcurrencystate.reservecurrencies && !c.isFailedLaunch) {
+          let hasCurrency = false;
+          for (let i in c.bestcurrencystate.reservecurrencies) {
+            let rc = c.bestcurrencystate.reservecurrencies[i];
+            if ((rc.currencyid == currencyid || rc.currencyid == this.currencyids[currencyid])) {
+              hasCurrency = true;
+            }
+          }
+          if (hasCurrency === true) {
+            r.push(c.currencyid);
+          }
+        }
+      }
+      return r;
+    }
+
+    async getBaskets() {
+      let r = [];
+      for (let id in this.currencies) {
+        let c = this.currencies[id];
+        if (c.bestcurrencystate && c.bestcurrencystate.reservecurrencies && !c.isFailedLaunch) {
+          r.push(c);
+        }
+      }
+      r.sort(function(a, b){
+        return b.bestcurrencystate.reservecurrencies[0].reserves - a.bestcurrencystate.reservecurrencies[0].reserves;
+      });
+      return r;
+    }
+
     async getUnspentBlockRewards(useCache=undefined) {
       let r = [];
       let rsp = await this.request("listunspent", [], false, useCache);
@@ -1413,6 +1535,7 @@ class VerusRPC {
 
       let addresses = await this.getAddresses(true);
       if (addresses !== undefined) {
+        /*
         // check listaddressgroupings for any missed R* addresses
         let rsp = await this.request("listaddressgroupings", [], true);
         if (rsp && !rsp.error) {
@@ -1425,15 +1548,15 @@ class VerusRPC {
                     }
                 }
             }
-
         } else {
           console.error("error, listaddressgroupings", rsp);
           return {totals:totals, balances:balances};
         }
+        */
 
         for (let i in addresses.identities) {
           let addr = addresses.identities[i];
-          rsp = await this.getCurrencyBalance(addr, minconf, false, false);
+          let rsp = await this.getCurrencyBalance(addr, minconf, false, false);
           if (rsp !== undefined) {
             for (let currencyid in rsp) {
               let name = this.currencies[currencyid].fullyqualifiedname || currencyid;
@@ -1459,7 +1582,7 @@ class VerusRPC {
         
         for (let i in addresses.public) {
           let addr = addresses.public[i];
-          rsp = await this.getCurrencyBalance(addr, minconf, false, false);
+          let rsp = await this.getCurrencyBalance(addr, minconf, false, false);
           if (rsp !== undefined) {
             for (let currencyid in rsp) {
               let name = this.currencies[currencyid].fullyqualifiedname || currencyid;
@@ -1491,7 +1614,7 @@ class VerusRPC {
             currencynames[currencyid] = name;
           }
           let zaddr = addresses.private[i];
-          rsp = await this.request("z_getbalance", [zaddr, minconf], useCache);
+          let rsp = await this.request("z_getbalance", [zaddr, minconf], useCache);
           if (rsp && !rsp.error) {
               let balance = rsp.result;
               if (!balance) { balance = 0; }

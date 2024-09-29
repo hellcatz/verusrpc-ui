@@ -1,11 +1,18 @@
 {
   "verbose": 0,
+
   "rpcuser": "",
   "rpcpass": "",
   "rpchost": "",
   "rpcport": "",
-  
+
   "listenport": 8080,
-  
-  "autoprune": true
+
+  "nowallet": false,
+
+  "chartly": {
+    "baskets": [],
+    "maxHistoryBlocks": 43200,
+    "tickerBlocks": 60
+  }
 }
