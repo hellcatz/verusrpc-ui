@@ -128,11 +128,11 @@ async function startApp() {
   });
 
   const listenport = config.listenport || 8080;
-
-  const rpchost = vconf.rpchost || config.rpchost || "127.0.0.1";
-  const rpcport = vconf.rpcport || config.rpcport || 27486;
-  const rpcuser = vconf.rpcuser || config.rpcuser || "user";
-  const rpcpass = vconf.rpcpassword || config.rpcpassword || "pass";
+  
+  const rpchost = config.rpchost || vconf.rpchost ||"127.0.0.1";
+  const rpcport = config.rpcport || vconf.rpcport || 27486;
+  const rpcuser = config.rpcuser || vconf.rpcuser || "user";
+  const rpcpass = config.rpcpass || vconf.rpcpassword || "pass";
 
   let daemon_url = "http://" + rpchost + ":" + rpcport;
 
